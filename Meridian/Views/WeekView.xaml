@@ -1,0 +1,63 @@
+<Page
+    x:Class="Meridian.Views.WeekView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- day headers -->
+            <RowDefinition Height="Auto"/>   <!-- all-day strip -->
+            <RowDefinition Height="*"/>      <!-- timed grid -->
+        </Grid.RowDefinitions>
+
+        <!-- Loading -->
+        <ProgressRing Grid.RowSpan="3"
+                      x:Name="LoadingRing"
+                      IsActive="False"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Width="48" Height="48"/>
+
+        <!-- Error -->
+        <InfoBar Grid.RowSpan="3"
+                 x:Name="ErrorBar"
+                 IsOpen="False"
+                 Severity="Error"
+                 VerticalAlignment="Top"/>
+
+        <!-- Day headers row -->
+        <Grid Grid.Row="0" x:Name="HeaderGrid" Margin="48,0,0,0"/>
+
+        <!-- All-day strip -->
+        <Grid Grid.Row="1" BorderThickness="0,1,0,1"
+              BorderBrush="{ThemeResource SystemControlForegroundBaseLowBrush}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="48"/>  <!-- time gutter -->
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="Весь&#x0a;день"
+                       FontSize="10" TextAlignment="Center"
+                       VerticalAlignment="Center"
+                       Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}"/>
+            <Grid Grid.Column="1" x:Name="AllDayGrid" MinHeight="28"/>
+        </Grid>
+
+        <!-- Timed grid -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="48"/>  <!-- time gutter -->
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Hour labels -->
+                <Canvas Grid.Column="0" x:Name="TimeGutter"
+                        Width="48"/>
+
+                <!-- Day columns -->
+                <Grid Grid.Column="1" x:Name="DayColumnsGrid"/>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</Page>
