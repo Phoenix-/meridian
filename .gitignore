@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+
+# User-specific VS files
+*.user
+*.suo
+.vs/
+
+# Secrets — never commit
+client_secret.json
+
+# Claude Code local config
+.claude/
+
+# NuGet
+*.nupkg
+packages/
+
+# OS
+Thumbs.db
+Desktop.ini
