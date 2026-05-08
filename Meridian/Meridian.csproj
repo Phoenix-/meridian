@@ -23,6 +23,12 @@
     <PackageReference Include="Google.Apis.Calendar.v3" Version="1.69.0.3667" />
     <PackageReference Include="Google.Apis.Tasks.v1" Version="1.68.0.3657" />
   </ItemGroup>
+  <!-- Generate Secrets.g.cs from client_secret.json at build time -->
+  <Target Name="GenerateSecrets" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(MSBuildProjectDirectory)\..\client_secret.json')" Text="client_secret.json not found at repo root. Copy it from Google Cloud Console." />
+    <Exec Command="powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\generate-secrets.ps1&quot; -SecretsJson &quot;$(MSBuildProjectDirectory)\..\client_secret.json&quot; -OutputFile &quot;$(MSBuildProjectDirectory)\Auth\Secrets.g.cs&quot;" />
+  </Target>
+
   <!-- Workaround for https://github.com/microsoft/WindowsAppSDK/issues/6394 -->
   <!-- Publish pipeline skips PRI and XBF generation; run it explicitly and include results -->
   <Target Name="_IncludePriAndXbfInPublish" BeforeTargets="ComputeFilesToPublish" DependsOnTargets="_GenerateProjectPriFile">
