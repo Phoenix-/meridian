@@ -74,7 +74,6 @@ public sealed partial class WeekView : Page, ICalendarView
         var snapshot = _lastSnapshot;
         if (snapshot == null) return;
 
-        LoadingRing.IsActive = !snapshot.IsComplete && snapshot.Events.Count == 0;
         ErrorBar.IsOpen = snapshot.ErrorMessage != null;
         ErrorBar.Message = snapshot.ErrorMessage ?? "";
 

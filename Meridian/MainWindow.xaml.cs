@@ -24,6 +24,14 @@ public sealed partial class MainWindow : Window
 
         _accountManager = new AccountManager();
         ViewModel = new MainViewModel(_accountManager, DispatcherQueue);
+        ViewModel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ViewModel.IsRefreshing))
+            {
+                RefreshIcon.Visibility = ViewModel.IsRefreshing ? Visibility.Collapsed : Visibility.Visible;
+                RefreshRing.IsActive = ViewModel.IsRefreshing;
+            }
+        };
 
         AccountsList.ItemsSource = _accountManager.Accounts;
 

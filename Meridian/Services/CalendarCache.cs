@@ -21,6 +21,10 @@ public sealed class CalendarCache
     // Fired on the thread that completed the fetch. Consumers must marshal to UI if needed.
     public event Action<IReadOnlyList<YearMonth>>? DataRefreshed;
 
+    // Fired when the number of in-flight fetches changes (0 = idle).
+    public event Action<int>? FetchingCountChanged;
+    private int _activeFetches;
+
     private readonly Dictionary<YearMonth, CachedMonth> _months = [];
     private readonly Dictionary<string, List<TaskItem>> _tasksByAccount = [];
 
@@ -77,6 +81,7 @@ public sealed class CalendarCache
         }
 
         entry.State = CacheState.Loading;
+        FetchingCountChanged?.Invoke(++_activeFetches);
         entry.LoadingTask = DoFetch(ym, entry);
         try
         {
@@ -86,6 +91,7 @@ public sealed class CalendarCache
         finally
         {
             entry.LoadingTask = null;
+            FetchingCountChanged?.Invoke(--_activeFetches);
         }
 
         DataRefreshed?.Invoke([ym]);
