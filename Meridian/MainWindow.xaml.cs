@@ -77,13 +77,19 @@ public sealed partial class MainWindow : Window
 
     private void OnPrevClick(object sender, RoutedEventArgs e)
     {
-        ViewModel.PreviousDayCommand.Execute(null);
+        if (_currentMode == ViewMode.Week)
+            ViewModel.PreviousWeekCommand.Execute(null);
+        else
+            ViewModel.PreviousDayCommand.Execute(null);
         Refresh();
     }
 
     private void OnNextClick(object sender, RoutedEventArgs e)
     {
-        ViewModel.NextDayCommand.Execute(null);
+        if (_currentMode == ViewMode.Week)
+            ViewModel.NextWeekCommand.Execute(null);
+        else
+            ViewModel.NextDayCommand.Execute(null);
         Refresh();
     }
 
