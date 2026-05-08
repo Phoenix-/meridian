@@ -39,7 +39,7 @@ public sealed partial class WeekView : Page, ICalendarView
     {
         _vm = e.Parameter as MainViewModel;
         if (_vm == null) return;
-        _date = _vm.CurrentDate;
+        _date = DateTime.Today;
         _vm.SetActiveView(this);
     }
 
