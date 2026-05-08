@@ -16,12 +16,27 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
 
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(AppTitleBar);
+
+        AppWindow.Changed += (_, _) => UpdateTitleBarPadding();
+        UpdateTitleBarPadding();
+
         _accountManager = new AccountManager();
         ViewModel = new MainViewModel(_accountManager, DispatcherQueue);
 
         AccountsList.ItemsSource = _accountManager.Accounts;
 
         _ = InitAsync();
+    }
+
+    private void UpdateTitleBarPadding()
+    {
+        AppTitleBar.Padding = new Thickness(
+            AppWindow.TitleBar.LeftInset + 8,
+            8,
+            AppWindow.TitleBar.RightInset + 8,
+            8);
     }
 
     private async Task InitAsync()
