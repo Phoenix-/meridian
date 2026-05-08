@@ -50,7 +50,7 @@ public sealed partial class MonthView : Page, ICalendarView
     {
         _vm = e.Parameter as MainViewModel;
         if (_vm == null) return;
-        _date = _vm.CurrentDate;
+        _date = DateTime.Today;
 
         CalendarGrid.LayoutUpdated += OnCalendarGridLayoutUpdated;
         _vm.SetActiveView(this);

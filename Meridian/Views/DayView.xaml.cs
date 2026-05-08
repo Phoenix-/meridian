@@ -22,7 +22,7 @@ public sealed partial class DayView : Page, ICalendarView
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         _vm = e.Parameter as MainViewModel;
-        _date = _vm?.CurrentDate ?? DateTime.Today;
+        _date = DateTime.Today;
         Bindings.Update();
         _vm?.SetActiveView(this);
     }
