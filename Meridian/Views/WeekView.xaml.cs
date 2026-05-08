@@ -177,7 +177,8 @@ public sealed partial class WeekView : Page, ICalendarView
             }
 
             var color = GetAccountColor(ev.AccountEmail, accountIndex);
-            var chip = MakeChip(ev.Title, color, Colors.White);
+            var chip = new MonthEventChip();
+            chip.Apply(new EventChipData(ev.Title, color, null, true));
             Grid.SetColumn(chip, col);
             Grid.SetColumnSpan(chip, endCol - col + 1);
             Grid.SetRow(chip, r);
@@ -208,7 +209,8 @@ public sealed partial class WeekView : Page, ICalendarView
                     AllDayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
                 }
 
-                var chip = MakeChip("☑ " + task.Title, TaskColor, Colors.White);
+                var chip = new MonthEventChip();
+                chip.Apply(new EventChipData("☑ " + task.Title, TaskColor, null, true));
                 Grid.SetColumn(chip, col);
                 Grid.SetRow(chip, r);
                 AllDayGrid.Children.Add(chip);
@@ -239,7 +241,7 @@ public sealed partial class WeekView : Page, ICalendarView
     // ── Timed grid ───────────────────────────────────────────────────────────
 
     // Per-column data needed to reposition events when column width changes.
-    private record DayColumnData(List<CalendarEvent> Events, List<(Border Block, double CascadeLeft)> EventBlocks, Color[] Colors);
+    private record DayColumnData(List<CalendarEvent> Events, List<(WeekEventBlock Block, double CascadeLeft)> EventBlocks, Color[] Colors);
     private readonly List<DayColumnData> _dayColumns = [];
 
     private void BuildTimedGrid()
@@ -329,13 +331,16 @@ public sealed partial class WeekView : Page, ICalendarView
 
             var allDayEvents = dayEvents.Concat(dayTaskEvents).ToList();
             var layouts = WeekViewLayout.LayoutDay(allDayEvents, 1000.0); // width corrected in SizeChanged
-            var eventBlocks = new List<(Border, double)>();
+            var eventBlocks = new List<(WeekEventBlock, double)>();
 
             foreach (var layout in layouts)
             {
                 bool isTask = dayTaskEvents.Any(t => t.Id == layout.Event.Id);
                 var color = isTask ? TaskColor : GetAccountColor(layout.Event.AccountEmail, accountIndex);
-                var block = MakeEventBlock(layout.Event.Title, layout.Event.Start, layout.Event.End, color, 100, layout.Height);
+                var block = new WeekEventBlock();
+                block.Apply(layout.Event.Title, layout.Event.Start, layout.Event.End, color, layout.Height);
+                block.Width = Math.Max(layout.Width, 20);
+                block.Height = layout.Height;
                 Canvas.SetTop(block, layout.Top);
                 Canvas.SetLeft(block, layout.Left + 1);
                 Canvas.SetZIndex(block, layout.ZIndex);
@@ -440,83 +445,4 @@ public sealed partial class WeekView : Page, ICalendarView
         return EventColors[i];
     }
 
-    private static Border MakeChip(string title, Color bg, Color fg)
-    {
-        return new Border
-        {
-            Background = new SolidColorBrush(bg),
-            CornerRadius = new CornerRadius(3),
-            Margin = new Thickness(1, 1, 1, 1),
-            Padding = new Thickness(4, 1, 4, 1),
-            Child = new TextBlock
-            {
-                Text = title,
-                FontSize = 11,
-                Foreground = new SolidColorBrush(fg),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                TextWrapping = TextWrapping.NoWrap,
-            },
-        };
-    }
-
-    private static Border MakeEventBlock(string title, DateTime start, DateTime end, Color color, double width, double height)
-    {
-        var startStr = $"{start:HH:mm}";
-        var timeStr = $"{start:HH:mm}–{end:HH:mm}";
-        var stack = new StackPanel { Spacing = 0 };
-
-        // Measure how much vertical space two lines would need before deciding layout
-        var measureTitle = new TextBlock { Text = title, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.NoWrap };
-        var measureTime  = new TextBlock { Text = timeStr, FontSize = 10 };
-        measureTitle.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
-        measureTime.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
-        const double verticalPadding = 2 + 2; // Padding top + bottom
-        bool twoLines = height >= measureTitle.DesiredSize.Height + measureTime.DesiredSize.Height + verticalPadding;
-
-        if (twoLines)
-        {
-            // Enough room: title on first line, time range on second
-            stack.Children.Add(new TextBlock
-            {
-                Text = title,
-                FontSize = 12,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(Colors.White),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                TextWrapping = TextWrapping.NoWrap,
-            });
-            stack.Children.Add(new TextBlock
-            {
-                Text = timeStr,
-                FontSize = 10,
-                Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255)),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-            });
-        }
-        else
-        {
-            // Short event: inline start time after title so it shows when title is brief
-            stack.Children.Add(new TextBlock
-            {
-                Text = $"{title}, {startStr}",
-                FontSize = 12,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(Colors.White),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                TextWrapping = TextWrapping.NoWrap,
-            });
-        }
-
-        return new Border
-        {
-            Background = new SolidColorBrush(color),
-            CornerRadius = new CornerRadius(4),
-            Padding = new Thickness(4, 2, 4, 2),
-            Width = Math.Max(width, 20),
-            Height = height,
-            Child = stack,
-            BorderBrush = (SolidColorBrush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"],
-            BorderThickness = new Thickness(2),
-        };
-    }
 }
