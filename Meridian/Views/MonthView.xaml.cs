@@ -3,14 +3,17 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
+using Meridian.Models;
 using Meridian.ViewModels;
 using Windows.UI;
 
 namespace Meridian.Views;
 
-public sealed partial class MonthView : Page
+public sealed partial class MonthView : Page, ICalendarView
 {
     private MainViewModel? _vm;
+    private DateTime _date;
+    private CalendarSnapshot? _lastSnapshot;
 
     private static readonly Color[] EventColors =
     [
@@ -47,18 +50,27 @@ public sealed partial class MonthView : Page
     {
         _vm = e.Parameter as MainViewModel;
         if (_vm == null) return;
+        _date = _vm.CurrentDate;
 
         CalendarGrid.LayoutUpdated += OnCalendarGridLayoutUpdated;
+        _vm.SetActiveView(this);
+    }
 
-        _vm.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName is nameof(MainViewModel.IsLoading)
-                                  or nameof(MainViewModel.Events)
-                                  or nameof(MainViewModel.Tasks)
-                                  or nameof(MainViewModel.ErrorMessage))
-                DispatcherQueue.TryEnqueue(Rebuild);
-        };
+    public (DateTime From, DateTime To) GetRange()
+    {
+        var first = new DateTime(_date.Year, _date.Month, 1);
+        var last = first.AddMonths(1).AddDays(-1);
+        int startDow = ((int)first.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        int endDow = ((int)last.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+        return (first.AddDays(-startDow), last.AddDays(6 - endDow).AddDays(1));
+    }
 
+    public void NavigatePrevious() { _date = _date.AddMonths(-1); }
+    public void NavigateNext()     { _date = _date.AddMonths(1); }
+
+    public void ApplySnapshot(CalendarSnapshot snapshot)
+    {
+        _lastSnapshot = snapshot;
         Rebuild();
     }
 
@@ -70,13 +82,14 @@ public sealed partial class MonthView : Page
 
     private void Rebuild()
     {
-        if (_vm == null) return;
+        var snapshot = _lastSnapshot;
+        if (snapshot == null) return;
 
-        LoadingRing.IsActive = _vm.IsLoading;
-        ErrorBar.IsOpen = !string.IsNullOrEmpty(_vm.ErrorMessage);
-        ErrorBar.Message = _vm.ErrorMessage ?? "";
+        LoadingRing.IsActive = !snapshot.IsComplete && snapshot.Events.Count == 0;
+        ErrorBar.IsOpen = snapshot.ErrorMessage != null;
+        ErrorBar.Message = snapshot.ErrorMessage ?? "";
 
-        if (_vm.IsLoading) return;
+        if (LoadingRing.IsActive) return;
 
         BuildDowHeaders();
         BuildCalendarGrid();
@@ -125,7 +138,7 @@ public sealed partial class MonthView : Page
         CalendarGrid.ColumnDefinitions.Clear();
         CalendarGrid.RowDefinitions.Clear();
 
-        var current = _vm!.CurrentDate;
+        var current = _date;
         var firstOfMonth = new DateTime(current.Year, current.Month, 1);
 
         int startDow = ((int)firstOfMonth.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
@@ -149,7 +162,7 @@ public sealed partial class MonthView : Page
         for (int d = 0; d < totalDays; d++)
             dayItems[gridStart.AddDays(d)] = [];
 
-        foreach (var ev in _vm.Events)
+        foreach (var ev in _lastSnapshot!.Events)
         {
             var color = GetAccountColor(ev.AccountEmail, accountIndex);
             if (ev.IsAllDay)
@@ -167,7 +180,7 @@ public sealed partial class MonthView : Page
             }
         }
 
-        foreach (var task in _vm.Tasks)
+        foreach (var task in _lastSnapshot!.Tasks)
         {
             if (!task.Due.HasValue) continue;
             var day = task.Due.Value.ToDateTime(TimeOnly.MinValue);
