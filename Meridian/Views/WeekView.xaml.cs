@@ -11,10 +11,12 @@ using Windows.UI;
 
 namespace Meridian.Views;
 
-public sealed partial class WeekView : Page
+public sealed partial class WeekView : Page, ICalendarView
 {
     private MainViewModel? _vm;
+    private DateTime _date;
     private DateTime _weekStart;
+    private CalendarSnapshot? _lastSnapshot;
 
     // Accent colors for events per account (cycles through list)
     private static readonly Color[] EventColors =
@@ -37,31 +39,35 @@ public sealed partial class WeekView : Page
     {
         _vm = e.Parameter as MainViewModel;
         if (_vm == null) return;
+        _date = _vm.CurrentDate;
+        _vm.SetActiveView(this);
+    }
 
-        _vm.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName is nameof(MainViewModel.IsLoading)
-                                  or nameof(MainViewModel.Events)
-                                  or nameof(MainViewModel.Tasks)
-                                  or nameof(MainViewModel.ErrorMessage))
-                DispatcherQueue.TryEnqueue(Rebuild);
-        };
+    public (DateTime From, DateTime To) GetRange()
+    {
+        var monday = GetMonday(_date);
+        return (monday, monday.AddDays(7));
+    }
 
+    public void NavigatePrevious() { _date = _date.AddDays(-7); }
+    public void NavigateNext()     { _date = _date.AddDays(7); }
+
+    public void ApplySnapshot(CalendarSnapshot snapshot)
+    {
+        _lastSnapshot = snapshot;
         Rebuild();
     }
 
     private void Rebuild()
     {
-        if (_vm == null) return;
+        var snapshot = _lastSnapshot;
+        if (snapshot == null) return;
 
-        LoadingRing.IsActive = _vm.IsLoading;
+        LoadingRing.IsActive = !snapshot.IsComplete && snapshot.Events.Count == 0;
+        ErrorBar.IsOpen = snapshot.ErrorMessage != null;
+        ErrorBar.Message = snapshot.ErrorMessage ?? "";
 
-        ErrorBar.IsOpen = !string.IsNullOrEmpty(_vm.ErrorMessage);
-        ErrorBar.Message = _vm.ErrorMessage ?? "";
-
-        if (_vm.IsLoading) return;
-
-        _weekStart = GetMonday(_vm.CurrentDate);
+        _weekStart = GetMonday(_date);
         BuildHeaders();
         BuildAllDayStrip();
         BuildTimedGrid();
@@ -131,7 +137,7 @@ public sealed partial class WeekView : Page
         var accountIndex = BuildAccountIndex();
 
         // All-day events
-        var allDayEvents = _vm!.Events.Where(e => e.IsAllDay).ToList();
+        var allDayEvents = _lastSnapshot!.Events.Where(e => e.IsAllDay).ToList();
         var rowMap = new List<(DateTime end, int col)[]>();
 
         foreach (var ev in allDayEvents.OrderBy(e => e.Start))
@@ -161,7 +167,7 @@ public sealed partial class WeekView : Page
 
         // Tasks with due date but no reminder time — show as all-day chips
         var tasksByDay = new Dictionary<int, List<TaskItem>>();
-        foreach (var t in _vm.Tasks.Where(t => t.Due.HasValue && !t.ReminderTime.HasValue))
+        foreach (var t in _lastSnapshot!.Tasks.Where(t => t.Due.HasValue && !t.ReminderTime.HasValue))
         {
             int col = DayIndex(t.Due!.Value.ToDateTime(TimeOnly.MinValue));
             if (col < 0 || col > 6) continue;
@@ -283,10 +289,10 @@ public sealed partial class WeekView : Page
             }
 
             // Regular timed events
-            var dayEvents = _vm!.Events.Where(e => !e.IsAllDay && e.Start.Date == day.Date).ToList();
+            var dayEvents = _lastSnapshot!.Events.Where(e => !e.IsAllDay && e.Start.Date == day.Date).ToList();
 
             // Tasks with a reminder time on this day — synthesize as CalendarEvent (30 min block)
-            var dayTaskEvents = _vm.Tasks
+            var dayTaskEvents = _lastSnapshot.Tasks
                 .Where(t => t.ReminderTime.HasValue && t.ReminderTime.Value.Date == day.Date)
                 .Select(t => new CalendarEvent
                 {
