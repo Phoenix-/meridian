@@ -64,9 +64,8 @@ public sealed partial class MainWindow : Window
 
     private void UpdateDateLabel()
     {
-        DateLabel.Text = ContentFrame.Content is MonthView
-            ? ViewModel.CurrentDate.ToString("MMMM yyyy")
-            : ViewModel.CurrentDate.ToString("d MMMM yyyy");
+        if (ContentFrame.Content is ICalendarView view)
+            DateLabel.Text = view.GetLabel();
     }
 
     private void OnDayClick(object sender, RoutedEventArgs e) => NavigateDay();

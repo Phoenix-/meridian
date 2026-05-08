@@ -30,6 +30,8 @@ public sealed partial class DayView : Page, ICalendarView
     public (DateTime From, DateTime To) GetRange() =>
         (_date.Date, _date.Date.AddDays(1));
 
+    public string GetLabel() => _date.ToString("d MMMM yyyy");
+
     public void NavigatePrevious() { _date = _date.AddDays(-1); }
     public void NavigateNext()     { _date = _date.AddDays(1); }
 
