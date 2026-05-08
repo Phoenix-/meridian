@@ -21,14 +21,24 @@ public sealed partial class DayView : Page, ICalendarView
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
-        _vm = e.Parameter as MainViewModel;
-        _date = DateTime.Today;
+        if (e.Parameter is (MainViewModel vm, DateTime date))
+        {
+            _vm = vm;
+            _date = date;
+        }
+        else
+        {
+            _vm = e.Parameter as MainViewModel;
+            _date = DateTime.Today;
+        }
         Bindings.Update();
         _vm?.SetActiveView(this);
     }
 
     public (DateTime From, DateTime To) GetRange() =>
         (_date.Date, _date.Date.AddDays(1));
+
+    public DateTime GetCurrentDate() => _date;
 
     public string GetLabel() => _date.ToString("d MMMM yyyy");
 
