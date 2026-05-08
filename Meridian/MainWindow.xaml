@@ -11,8 +11,8 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- Top bar -->
-        <Grid Grid.Row="0" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" Padding="12,8">
+        <!-- Top bar / custom title bar -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" Padding="0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
