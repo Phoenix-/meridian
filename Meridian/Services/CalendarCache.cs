@@ -53,15 +53,13 @@ public sealed class CalendarCache
 
     // ── Internal fetch machinery ──────────────────────────────────────────────
 
-    private Func<YearMonth, Task>? _fetcher;
+    private Func<YearMonth, Task<(List<CalendarEvent>, Dictionary<string, List<TaskItem>>)>>? _fetcher;
 
     /// Wire up the actual Google API fetch. Called once by the owner (MainViewModel).
-    internal void SetFetcher(Func<YearMonth, Task> fetcher) => _fetcher = fetcher;
+    internal void SetFetcher(Func<YearMonth, Task<(List<CalendarEvent>, Dictionary<string, List<TaskItem>>)>> fetcher) =>
+        _fetcher = fetcher;
 
-    internal void SetTasks(string accountEmail, List<TaskItem> tasks) =>
-        _tasksByAccount[accountEmail] = tasks;
-
-    internal CachedMonth GetOrCreate(YearMonth key)
+    private CachedMonth GetOrCreate(YearMonth key)
     {
         if (!_months.TryGetValue(key, out var entry))
             _months[key] = entry = new CachedMonth();
@@ -69,7 +67,7 @@ public sealed class CalendarCache
     }
 
     /// Fetches a single month and raises DataRefreshed when done.
-    internal async Task FetchMonthAsync(YearMonth ym)
+    private async Task FetchMonthAsync(YearMonth ym)
     {
         var entry = GetOrCreate(ym);
         if (entry.State == CacheState.Loading)
@@ -79,17 +77,35 @@ public sealed class CalendarCache
         }
 
         entry.State = CacheState.Loading;
-        entry.LoadingTask = _fetcher!(ym);
+        entry.LoadingTask = DoFetch(ym, entry);
         try
         {
             await entry.LoadingTask;
         }
+        catch { }
         finally
         {
             entry.LoadingTask = null;
         }
 
         DataRefreshed?.Invoke([ym]);
+    }
+
+    private async Task DoFetch(YearMonth ym, CachedMonth entry)
+    {
+        try
+        {
+            var (events, tasksByAccount) = await _fetcher!(ym);
+            entry.Events = events;
+            entry.State = CacheState.Fresh;
+            foreach (var (email, tasks) in tasksByAccount)
+                _tasksByAccount[email] = tasks;
+        }
+        catch
+        {
+            entry.State = CacheState.Stale;
+            throw;
+        }
     }
 
     private void EnsureWindow(YearMonth anchor)
