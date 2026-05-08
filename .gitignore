@@ -9,6 +9,7 @@ obj/
 
 # Secrets — never commit
 client_secret.json
+Meridian/Auth/Secrets.g.cs
 
 # Claude Code local config
 .claude/
