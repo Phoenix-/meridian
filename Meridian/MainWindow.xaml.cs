@@ -49,6 +49,7 @@ public sealed partial class MainWindow : Window
         _currentMode = ViewMode.Day;
         SetActiveButton(BtnDay);
         DateLabel.Text = ViewModel.CurrentDate.ToString("d MMMM yyyy");
+        ViewModel.PrepareForLoad();
         ContentFrame.Navigate(typeof(DayView), ViewModel);
         _ = ViewModel.LoadDayCommand.ExecuteAsync(null);
     }
@@ -58,6 +59,7 @@ public sealed partial class MainWindow : Window
         _currentMode = ViewMode.Week;
         SetActiveButton(BtnWeek);
         DateLabel.Text = ViewModel.CurrentDate.ToString("d MMMM yyyy");
+        ViewModel.PrepareForLoad();
         ContentFrame.Navigate(typeof(WeekView), ViewModel);
         _ = ViewModel.LoadWeekCommand.ExecuteAsync(null);
     }
@@ -67,6 +69,7 @@ public sealed partial class MainWindow : Window
         _currentMode = ViewMode.Month;
         SetActiveButton(BtnMonth);
         DateLabel.Text = ViewModel.CurrentDate.ToString("MMMM yyyy");
+        ViewModel.PrepareForLoad();
         ContentFrame.Navigate(typeof(MonthView), ViewModel);
         _ = ViewModel.LoadMonthCommand.ExecuteAsync(null);
     }
