@@ -283,6 +283,9 @@ public sealed partial class MonthView : Page, ICalendarView
         {
             BorderThickness = new Thickness(0, 0, 1, 1),
             BorderBrush = separatorBrush,
+            Background = isCurrentMonth
+                ? new SolidColorBrush(Color.FromArgb(15, 26, 115, 232))
+                : new SolidColorBrush(Colors.Transparent),
         };
         var clip = new Microsoft.UI.Xaml.Media.RectangleGeometry();
         cell.Clip = clip;
@@ -307,7 +310,9 @@ public sealed partial class MonthView : Page, ICalendarView
                 VerticalAlignment = VerticalAlignment.Center,
                 Foreground = isToday
                     ? new SolidColorBrush(Colors.White)
-                    : isCurrentMonth ? null : mutedBrush,
+                    : isCurrentMonth
+                        ? (Brush)Application.Current.Resources["SystemControlForegroundBaseHighBrush"]
+                        : mutedBrush,
             },
         };
         var dateRow = new Grid();
