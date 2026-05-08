@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls;
 using Meridian.Auth;
 using Meridian.ViewModels;
@@ -15,6 +16,8 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        SystemBackdrop = new DesktopAcrylicBackdrop();
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);

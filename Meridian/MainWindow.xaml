@@ -12,7 +12,7 @@
         </Grid.RowDefinitions>
 
         <!-- Top bar / custom title bar -->
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="{ThemeResource SystemControlBackgroundChromeMediumBrush}" Padding="0,8">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent" Padding="0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
