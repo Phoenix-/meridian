@@ -1,0 +1,36 @@
+<Page
+    x:Class="Meridian.Views.MonthView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- day-of-week headers -->
+            <RowDefinition Height="*"/>     <!-- calendar grid -->
+        </Grid.RowDefinitions>
+
+        <!-- Loading -->
+        <ProgressRing Grid.RowSpan="2"
+                      x:Name="LoadingRing"
+                      IsActive="False"
+                      HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Width="48" Height="48"/>
+
+        <!-- Error -->
+        <InfoBar Grid.RowSpan="2"
+                 x:Name="ErrorBar"
+                 IsOpen="False"
+                 Severity="Error"
+                 VerticalAlignment="Top"/>
+
+        <!-- Day-of-week header row -->
+        <Grid Grid.Row="0" x:Name="DowHeaderGrid"
+              BorderThickness="0,0,0,1"
+              BorderBrush="{ThemeResource SystemControlForegroundBaseLowBrush}">
+        </Grid>
+
+        <!-- Calendar cells grid -->
+        <Grid Grid.Row="1" x:Name="CalendarGrid"/>
+    </Grid>
+</Page>

@@ -67,7 +67,7 @@ public sealed partial class MainWindow : Window
         _currentMode = ViewMode.Month;
         SetActiveButton(BtnMonth);
         DateLabel.Text = ViewModel.CurrentDate.ToString("MMMM yyyy");
-        ContentFrame.Navigate(typeof(DayView), ViewModel);
+        ContentFrame.Navigate(typeof(MonthView), ViewModel);
         _ = ViewModel.LoadMonthCommand.ExecuteAsync(null);
     }
 
@@ -77,19 +77,23 @@ public sealed partial class MainWindow : Window
 
     private void OnPrevClick(object sender, RoutedEventArgs e)
     {
-        if (_currentMode == ViewMode.Week)
-            ViewModel.PreviousWeekCommand.Execute(null);
-        else
-            ViewModel.PreviousDayCommand.Execute(null);
+        switch (_currentMode)
+        {
+            case ViewMode.Week:  ViewModel.PreviousWeekCommand.Execute(null);  break;
+            case ViewMode.Month: ViewModel.PreviousMonthCommand.Execute(null); break;
+            default:             ViewModel.PreviousDayCommand.Execute(null);   break;
+        }
         Refresh();
     }
 
     private void OnNextClick(object sender, RoutedEventArgs e)
     {
-        if (_currentMode == ViewMode.Week)
-            ViewModel.NextWeekCommand.Execute(null);
-        else
-            ViewModel.NextDayCommand.Execute(null);
+        switch (_currentMode)
+        {
+            case ViewMode.Week:  ViewModel.NextWeekCommand.Execute(null);  break;
+            case ViewMode.Month: ViewModel.NextMonthCommand.Execute(null); break;
+            default:             ViewModel.NextDayCommand.Execute(null);   break;
+        }
         Refresh();
     }
 
@@ -131,7 +135,10 @@ public sealed partial class MainWindow : Window
                 if (ContentFrame.Content is not WeekView) ContentFrame.Navigate(typeof(WeekView), ViewModel);
                 _ = ViewModel.LoadWeekCommand.ExecuteAsync(null);
                 break;
-            case ViewMode.Month: _ = ViewModel.LoadMonthCommand.ExecuteAsync(null); break;
+            case ViewMode.Month:
+                if (ContentFrame.Content is not MonthView) ContentFrame.Navigate(typeof(MonthView), ViewModel);
+                _ = ViewModel.LoadMonthCommand.ExecuteAsync(null);
+                break;
         }
     }
 }
