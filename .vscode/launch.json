@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug (WinUI 3)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "${workspaceFolder}/Meridian/bin/Debug/net10.0-windows10.0.19041.0/win-x64/Meridian.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}/Meridian",
+            "stopAtEntry": false,
+            "preLaunchTask": "build"
+        }
+    ]
+}
