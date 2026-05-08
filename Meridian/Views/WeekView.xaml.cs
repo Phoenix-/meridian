@@ -122,7 +122,9 @@ public sealed partial class WeekView : Page, ICalendarView
                     Text = day.Day.ToString(),
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
-                    Foreground = isToday ? new SolidColorBrush(Colors.White) : null,
+                    Foreground = isToday
+                        ? new SolidColorBrush(Colors.White)
+                        : (Brush)Application.Current.Resources["SystemControlForegroundBaseHighBrush"],
                 },
             };
 
