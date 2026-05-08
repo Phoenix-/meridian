@@ -1,0 +1,11 @@
+<UserControl
+    x:Class="Meridian.Views.DayCellControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        DayCellControl has no visual root of its own.
+        Its two visual parts (DateCircle and ChipsStack) are placed directly
+        into the parent WeekRowControl's grid via AddToGrid().
+    -->
+    <Grid/>
+</UserControl>
