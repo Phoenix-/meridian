@@ -103,4 +103,10 @@ public partial class MainViewModel : ObservableObject
 
     [RelayCommand]
     private void NextDay() { CurrentDate = CurrentDate.AddDays(1); }
+
+    [RelayCommand]
+    private void PreviousWeek() { CurrentDate = CurrentDate.AddDays(-7); }
+
+    [RelayCommand]
+    private void NextWeek() { CurrentDate = CurrentDate.AddDays(7); }
 }
