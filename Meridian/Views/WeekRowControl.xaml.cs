@@ -1,8 +1,8 @@
+using Meridian.Models;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Meridian.Models;
 using Windows.UI;
 
 namespace Meridian.Views;
@@ -104,14 +104,15 @@ public sealed partial class WeekRowControl : UserControl
 
         // ── Step 4: per-day item lists ────────────────────────────────────────
 
-        var dayItems = new List<(string title, Color color)>[7];
+        var dayItems = new List<EventChipData>[7];
         for (int i = 0; i < 7; i++) dayItems[i] = [];
 
         foreach (var ev in singleEvents)
         {
             var color = GetColor(ev.AccountEmail, eventColors, accountIndex);
             int col = (ev.Start.Date - weekStart).Days;
-            if (col is >= 0 and < 7) dayItems[col].Add((ev.Title, color));
+            if (col is >= 0 and < 7)
+                dayItems[col].Add(new EventChipData(ev.Title, color, ev.IsAllDay ? null : ev.Start, ev.IsAllDay));
         }
 
         foreach (var task in tasks)
@@ -119,7 +120,8 @@ public sealed partial class WeekRowControl : UserControl
             if (!task.Due.HasValue) continue;
             var day = task.Due.Value.ToDateTime(TimeOnly.MinValue).Date;
             int col = (day - weekStart).Days;
-            if (col is >= 0 and < 7) dayItems[col].Add(("☑ " + task.Title, TaskColor));
+            if (col is >= 0 and < 7)
+                dayItems[col].Add(new EventChipData("☑ " + task.Title, TaskColor, null, true));
         }
 
         // ── Step 5: background borders + day cells ────────────────────────────

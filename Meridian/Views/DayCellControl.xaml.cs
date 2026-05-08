@@ -1,3 +1,4 @@
+using Meridian.Models;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -17,7 +18,7 @@ public sealed partial class DayCellControl : UserControl
     public readonly StackPanel ChipsStack;
 
     private readonly TextBlock _dateText;
-    private List<Border> _chips = [];
+    private List<MonthEventChip> _chips = [];
     private TextBlock? _overflowLabel;
     private int _totalCount;
     private double _lastFitHeight = -1;
@@ -71,16 +72,17 @@ public sealed partial class DayCellControl : UserControl
         }
     }
 
-    public void SetItems(IReadOnlyList<(string title, Color color)> items)
+    public void SetItems(IReadOnlyList<EventChipData> items)
     {
         ChipsStack.Children.Clear();
-        _chips = new List<Border>(items.Count);
+        _chips = new List<MonthEventChip>(items.Count);
         _totalCount = items.Count;
         _lastFitHeight = -1;
 
-        foreach (var (title, color) in items)
+        foreach (var data in items)
         {
-            var chip = MakeChip(title, color);
+            var chip = new MonthEventChip();
+            chip.Apply(data);
             _chips.Add(chip);
             ChipsStack.Children.Add(chip);
         }
@@ -107,7 +109,7 @@ public sealed partial class DayCellControl : UserControl
 
         var inf = new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity);
 
-        var probeChip = MakeChip("x", Colors.Transparent);
+        var probeChip = MonthEventChip.MakeProbe(Colors.Transparent);
         probeChip.Measure(inf);
         double chipHeight = probeChip.DesiredSize.Height + ChipsStack.Spacing;
 
@@ -141,23 +143,5 @@ public sealed partial class DayCellControl : UserControl
         {
             _overflowLabel.Visibility = Visibility.Collapsed;
         }
-    }
-
-    internal static Border MakeChip(string title, Color color)
-    {
-        return new Border
-        {
-            Background = new SolidColorBrush(color),
-            CornerRadius = new CornerRadius(3),
-            Padding = new Thickness(4, 1, 4, 1),
-            Child = new TextBlock
-            {
-                Text = title,
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Colors.White),
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                TextWrapping = TextWrapping.NoWrap,
-            },
-        };
     }
 }
