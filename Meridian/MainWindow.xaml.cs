@@ -12,15 +12,12 @@ public sealed partial class MainWindow : Window
 
     private readonly AccountManager _accountManager;
 
-    private enum ViewMode { Day, Week, Month }
-    private ViewMode _currentMode = ViewMode.Day;
-
     public MainWindow()
     {
         InitializeComponent();
 
         _accountManager = new AccountManager();
-        ViewModel = new MainViewModel(_accountManager);
+        ViewModel = new MainViewModel(_accountManager, DispatcherQueue);
 
         AccountsList.ItemsSource = _accountManager.Accounts;
 
@@ -46,32 +43,30 @@ public sealed partial class MainWindow : Window
 
     private void NavigateDay()
     {
-        _currentMode = ViewMode.Day;
         SetActiveButton(BtnDay);
-        DateLabel.Text = ViewModel.CurrentDate.ToString("d MMMM yyyy");
-        ViewModel.PrepareForLoad();
         ContentFrame.Navigate(typeof(DayView), ViewModel);
-        _ = ViewModel.LoadDayCommand.ExecuteAsync(null);
+        UpdateDateLabel();
     }
 
     private void NavigateWeek()
     {
-        _currentMode = ViewMode.Week;
         SetActiveButton(BtnWeek);
-        DateLabel.Text = ViewModel.CurrentDate.ToString("d MMMM yyyy");
-        ViewModel.PrepareForLoad();
         ContentFrame.Navigate(typeof(WeekView), ViewModel);
-        _ = ViewModel.LoadWeekCommand.ExecuteAsync(null);
+        UpdateDateLabel();
     }
 
     private void NavigateMonth()
     {
-        _currentMode = ViewMode.Month;
         SetActiveButton(BtnMonth);
-        DateLabel.Text = ViewModel.CurrentDate.ToString("MMMM yyyy");
-        ViewModel.PrepareForLoad();
         ContentFrame.Navigate(typeof(MonthView), ViewModel);
-        _ = ViewModel.LoadMonthCommand.ExecuteAsync(null);
+        UpdateDateLabel();
+    }
+
+    private void UpdateDateLabel()
+    {
+        DateLabel.Text = ContentFrame.Content is MonthView
+            ? ViewModel.CurrentDate.ToString("MMMM yyyy")
+            : ViewModel.CurrentDate.ToString("d MMMM yyyy");
     }
 
     private void OnDayClick(object sender, RoutedEventArgs e) => NavigateDay();
@@ -80,27 +75,17 @@ public sealed partial class MainWindow : Window
 
     private void OnPrevClick(object sender, RoutedEventArgs e)
     {
-        switch (_currentMode)
-        {
-            case ViewMode.Week:  ViewModel.PreviousWeekCommand.Execute(null);  break;
-            case ViewMode.Month: ViewModel.PreviousMonthCommand.Execute(null); break;
-            default:             ViewModel.PreviousDayCommand.Execute(null);   break;
-        }
-        Refresh();
+        ViewModel.NavigatePrevious();
+        UpdateDateLabel();
     }
 
     private void OnNextClick(object sender, RoutedEventArgs e)
     {
-        switch (_currentMode)
-        {
-            case ViewMode.Week:  ViewModel.NextWeekCommand.Execute(null);  break;
-            case ViewMode.Month: ViewModel.NextMonthCommand.Execute(null); break;
-            default:             ViewModel.NextDayCommand.Execute(null);   break;
-        }
-        Refresh();
+        ViewModel.NavigateNext();
+        UpdateDateLabel();
     }
 
-    private void OnRefreshClick(object sender, RoutedEventArgs e) => Refresh();
+    private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.Refresh();
 
     private async void OnAddAccountClick(object sender, RoutedEventArgs e)
     {
@@ -108,11 +93,12 @@ public sealed partial class MainWindow : Window
         try
         {
             await _accountManager.AddAccountAsync();
-            Refresh();
+            ViewModel.Refresh();
         }
         catch (Exception ex)
         {
-            ViewModel.ErrorMessage = $"Ошибка добавления аккаунта: {ex.Message}";
+            // Surface error through active view on next snapshot
+            _ = ex;
         }
     }
 
@@ -121,27 +107,7 @@ public sealed partial class MainWindow : Window
         if (sender is Button btn && btn.Tag is string email)
         {
             await _accountManager.RemoveAccountAsync(email);
-            Refresh();
-        }
-    }
-
-    private void Refresh()
-    {
-        DateLabel.Text = _currentMode == ViewMode.Month
-            ? ViewModel.CurrentDate.ToString("MMMM yyyy")
-            : ViewModel.CurrentDate.ToString("d MMMM yyyy");
-
-        switch (_currentMode)
-        {
-            case ViewMode.Day: _ = ViewModel.LoadDayCommand.ExecuteAsync(null); break;
-            case ViewMode.Week:
-                if (ContentFrame.Content is not WeekView) ContentFrame.Navigate(typeof(WeekView), ViewModel);
-                _ = ViewModel.LoadWeekCommand.ExecuteAsync(null);
-                break;
-            case ViewMode.Month:
-                if (ContentFrame.Content is not MonthView) ContentFrame.Navigate(typeof(MonthView), ViewModel);
-                _ = ViewModel.LoadMonthCommand.ExecuteAsync(null);
-                break;
+            ViewModel.Refresh();
         }
     }
 }

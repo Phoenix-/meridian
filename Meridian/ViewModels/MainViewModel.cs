@@ -1,8 +1,9 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using Meridian.Auth;
 using Meridian.Models;
 using Meridian.Services;
+using Meridian.Views;
+using Microsoft.UI.Dispatching;
 using System.Collections.ObjectModel;
 
 namespace Meridian.ViewModels;
@@ -10,119 +11,121 @@ namespace Meridian.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly AccountManager _accounts;
+    private readonly CalendarCache _cache;
+    private readonly DispatcherQueue _dispatcher;
+
+    private ICalendarView? _activeView;
 
     [ObservableProperty]
     private DateTime _currentDate = DateTime.Today;
 
-    [ObservableProperty]
-    private bool _isLoading;
-
-    [ObservableProperty]
-    private string? _errorMessage;
-
     public ObservableCollection<string> Accounts => _accounts.Accounts;
-    public ObservableCollection<CalendarEvent> Events { get; } = [];
-    public ObservableCollection<TaskItem> Tasks { get; } = [];
 
-    public MainViewModel(AccountManager accounts)
+    public MainViewModel(AccountManager accounts, DispatcherQueue dispatcher)
     {
         _accounts = accounts;
+        _dispatcher = dispatcher;
+
+        _cache = new CalendarCache();
+        _cache.SetFetcher(FetchMonthAsync);
+        _cache.DataRefreshed += OnDataRefreshed;
     }
 
-    [RelayCommand]
-    private async Task LoadDayAsync()
+    // ── Called by MainWindow when the active view changes ─────────────────────
+
+    public void SetActiveView(ICalendarView view)
     {
-        await LoadRangeAsync(CurrentDate.Date, CurrentDate.Date.AddDays(1));
+        _activeView = view;
+        Refresh();
     }
 
-    [RelayCommand]
-    private async Task LoadWeekAsync()
+    // ── Called by MainWindow nav buttons ─────────────────────────────────────
+
+    public void NavigatePrevious()
     {
-        var monday = CurrentDate.AddDays(-(int)CurrentDate.DayOfWeek + (int)DayOfWeek.Monday);
-        if (CurrentDate.DayOfWeek == DayOfWeek.Sunday)
-            monday = CurrentDate.AddDays(-6);
-        await LoadRangeAsync(monday.Date, monday.Date.AddDays(7));
+        _activeView?.NavigatePrevious();
+        Refresh();
     }
 
-    [RelayCommand]
-    private async Task LoadMonthAsync()
+    public void NavigateNext()
     {
-        var first = new DateTime(CurrentDate.Year, CurrentDate.Month, 1);
-        await LoadRangeAsync(first, first.AddMonths(1));
+        _activeView?.NavigateNext();
+        Refresh();
     }
 
-    public void PrepareForLoad()
+    public void Refresh()
     {
-        Events.Clear();
-        Tasks.Clear();
-        IsLoading = true;
-        ErrorMessage = null;
+        if (_activeView == null) return;
+        var (from, to) = _activeView.GetRange();
+        var snapshot = _cache.Request(from, to);
+        _activeView.ApplySnapshot(snapshot);
     }
 
-    private async Task LoadRangeAsync(DateTime from, DateTime to)
+    // ── Cache event ───────────────────────────────────────────────────────────
+
+    private void OnDataRefreshed(IReadOnlyList<YearMonth> refreshed)
     {
-        Events.Clear();
-        Tasks.Clear();
-        IsLoading = true;
-        ErrorMessage = null;
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (_activeView == null) return;
+            var (from, to) = _activeView.GetRange();
+
+            bool relevant = refreshed.Any(ym =>
+            {
+                var ymFrom = ym.FirstDay();
+                var ymTo = ym.FirstDayOfNext();
+                return ymFrom < to && ymTo > from;
+            });
+
+            if (!relevant) return;
+
+            var snapshot = _cache.Request(from, to);
+            _activeView.ApplySnapshot(snapshot);
+        });
+    }
+
+    // ── Fetch (called by CalendarCache) ───────────────────────────────────────
+
+    private async Task FetchMonthAsync(YearMonth ym)
+    {
+        var entry = _cache.GetOrCreate(ym);
+        var from = ym.FirstDay();
+        var to = ym.FirstDayOfNext();
+
         try
         {
             var calendarServices = _accounts.Credentials
                 .Select(kv => (email: kv.Key, svc: new GoogleCalendarService(kv.Value)))
                 .ToList();
 
-            var eventTasks = calendarServices.Select(x => x.svc.GetEventsAsync(from, to, x.email));
-            var taskTasks = _accounts.Credentials.Select(kv =>
-                new GoogleTasksService(kv.Value).GetTasksAsync(kv.Key));
-            var reminderTasks = calendarServices.Select(x => x.svc.GetTaskReminderTimesAsync(from, to));
+            var eventFetches = calendarServices.Select(x => x.svc.GetEventsAsync(from, to, x.email));
+            var taskFetches = _accounts.Credentials.Select(kv =>
+                new GoogleTasksService(kv.Value).GetTasksAsync(kv.Key)
+                    .ContinueWith(t => (email: kv.Key, tasks: t.Result)));
+            var reminderFetches = calendarServices.Select(x => x.svc.GetTaskReminderTimesAsync(from, to));
 
-            var allEvents = (await Task.WhenAll(eventTasks)).SelectMany(x => x);
-            var allTasksRaw = (await Task.WhenAll(taskTasks)).SelectMany(x => x).ToList();
-            var reminderMaps = await Task.WhenAll(reminderTasks);
+            var allEvents = (await Task.WhenAll(eventFetches)).SelectMany(x => x).ToList();
+            var taskResults = await Task.WhenAll(taskFetches);
+            var reminderMaps = await Task.WhenAll(reminderFetches);
 
-            // Merge all reminder maps and apply to tasks by Id
             var allReminders = reminderMaps.SelectMany(d => d).ToDictionary(kv => kv.Key, kv => kv.Value);
-            foreach (var t in allTasksRaw)
-                if (t.Id != null && allReminders.TryGetValue(t.Id, out var rt))
-                    t.ReminderTime = rt;
+            foreach (var (email, tasks) in taskResults)
+            {
+                foreach (var t in tasks)
+                    if (t.Id != null && allReminders.TryGetValue(t.Id, out var rt))
+                        t.ReminderTime = rt;
+                _cache.SetTasks(email, tasks);
+            }
 
-            IEnumerable<TaskItem> allTasks = allTasksRaw;
-
-            var dateFrom = DateOnly.FromDateTime(from);
-            var dateTo = DateOnly.FromDateTime(to.AddDays(-1));
-            var filteredTasks = allTasks.Where(t => t.Due == null || (t.Due >= dateFrom && t.Due <= dateTo));
-
-            Events.Clear();
-            foreach (var e in allEvents.OrderBy(e => e.Start)) Events.Add(e);
-
-            Tasks.Clear();
-            foreach (var t in filteredTasks) Tasks.Add(t);
+            entry.Events = allEvents;
+            entry.State = CacheState.Fresh;
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Ошибка загрузки: {ex.Message}";
-        }
-        finally
-        {
-            IsLoading = false;
+            entry.State = CacheState.Stale;
+            _dispatcher.TryEnqueue(() =>
+                _activeView?.ApplySnapshot(new CalendarSnapshot([], [], false,
+                    $"Ошибка загрузки {ym}: {ex.Message}")));
         }
     }
-
-    [RelayCommand]
-    private void PreviousDay() { CurrentDate = CurrentDate.AddDays(-1); }
-
-    [RelayCommand]
-    private void NextDay() { CurrentDate = CurrentDate.AddDays(1); }
-
-    [RelayCommand]
-    private void PreviousWeek() { CurrentDate = CurrentDate.AddDays(-7); }
-
-    [RelayCommand]
-    private void NextWeek() { CurrentDate = CurrentDate.AddDays(7); }
-
-    [RelayCommand]
-    private void PreviousMonth() { CurrentDate = CurrentDate.AddMonths(-1); }
-
-    [RelayCommand]
-    private void NextMonth() { CurrentDate = CurrentDate.AddMonths(1); }
 }
