@@ -49,6 +49,17 @@ public sealed partial class WeekView : Page, ICalendarView
         return (monday, monday.AddDays(7));
     }
 
+    public string GetLabel()
+    {
+        var monday = GetMonday(_date);
+        var sunday = monday.AddDays(6);
+        if (monday.Month == sunday.Month)
+            return $"{monday.Day}–{sunday.Day} {sunday:MMMM yyyy}";
+        if (monday.Year == sunday.Year)
+            return $"{monday.Day} {monday:MMMM} – {sunday.Day} {sunday:MMMM yyyy}";
+        return $"{monday.Day} {monday:MMMM yyyy} – {sunday.Day} {sunday:MMMM yyyy}";
+    }
+
     public void NavigatePrevious() { _date = _date.AddDays(-7); }
     public void NavigateNext()     { _date = _date.AddDays(7); }
 
