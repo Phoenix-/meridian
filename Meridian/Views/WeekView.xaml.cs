@@ -37,11 +37,21 @@ public sealed partial class WeekView : Page, ICalendarView
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
-        _vm = e.Parameter as MainViewModel;
+        if (e.Parameter is (MainViewModel vm, DateTime date))
+        {
+            _vm = vm;
+            _date = date;
+        }
+        else
+        {
+            _vm = e.Parameter as MainViewModel;
+            _date = DateTime.Today;
+        }
         if (_vm == null) return;
-        _date = DateTime.Today;
         _vm.SetActiveView(this);
     }
+
+    public DateTime GetCurrentDate() => _date;
 
     public (DateTime From, DateTime To) GetRange()
     {

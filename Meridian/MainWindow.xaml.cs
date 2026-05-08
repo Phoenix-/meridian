@@ -64,24 +64,27 @@ public sealed partial class MainWindow : Window
             btn.Style = btn == active ? accent : null;
     }
 
+    private DateTime GetCurrentDate() =>
+        ContentFrame.Content is ICalendarView v ? v.GetCurrentDate() : DateTime.Today;
+
     private void NavigateDay()
     {
         SetActiveButton(BtnDay);
-        ContentFrame.Navigate(typeof(DayView), ViewModel);
+        ContentFrame.Navigate(typeof(DayView), (ViewModel, GetCurrentDate()));
         UpdateDateLabel();
     }
 
     private void NavigateWeek()
     {
         SetActiveButton(BtnWeek);
-        ContentFrame.Navigate(typeof(WeekView), ViewModel);
+        ContentFrame.Navigate(typeof(WeekView), (ViewModel, GetCurrentDate()));
         UpdateDateLabel();
     }
 
     private void NavigateMonth()
     {
         SetActiveButton(BtnMonth);
-        ContentFrame.Navigate(typeof(MonthView), ViewModel);
+        ContentFrame.Navigate(typeof(MonthView), (ViewModel, GetCurrentDate()));
         UpdateDateLabel();
     }
 
