@@ -65,6 +65,8 @@ public sealed partial class MonthView : Page, ICalendarView
         return (first.AddDays(-startDow), last.AddDays(6 - endDow).AddDays(1));
     }
 
+    public string GetLabel() => _date.ToString("MMMM yyyy");
+
     public void NavigatePrevious() { _date = _date.AddMonths(-1); }
     public void NavigateNext()     { _date = _date.AddMonths(1); }
 
