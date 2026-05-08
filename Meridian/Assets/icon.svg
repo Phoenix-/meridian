@@ -1,0 +1,55 @@
+<!-- SVG 1: Global Time -->
+                    <svg viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <!-- Тени -->
+                            <filter id="shadow-base" x="-10%" y="-10%" width="130%" height="130%">
+                                <feDropShadow dx="0" dy="8" stdDeviation="12" flood-opacity="0.15"></feDropShadow>
+                            </filter>
+                            <filter id="shadow-float" x="-20%" y="-20%" width="150%" height="150%">
+                                <feDropShadow dx="0" dy="12" stdDeviation="10" flood-opacity="0.2"></feDropShadow>
+                            </filter>
+                            <!-- Градиенты -->
+                            <linearGradient id="bg-grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#ffffff"></stop>
+                                <stop offset="100%" stop-color="#e2e8f0"></stop>
+                            </linearGradient>
+                            <linearGradient id="header-grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#3b82f6"></stop>
+                                <stop offset="100%" stop-color="#2563eb"></stop>
+                            </linearGradient>
+                            <linearGradient id="globe-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#60a5fa"></stop>
+                                <stop offset="100%" stop-color="#1e3a8a"></stop>
+                            </linearGradient>
+                            <linearGradient id="meridian-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stop-color="#f59e0b"></stop>
+                                <stop offset="100%" stop-color="#ea580c"></stop>
+                            </linearGradient>
+                            <linearGradient id="check-bg1" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#10b981"></stop>
+                                <stop offset="100%" stop-color="#059669"></stop>
+                            </linearGradient>
+                        </defs>
+                        
+                        <!-- Подложка календаря -->
+                        <rect x="28" y="28" width="200" height="200" rx="36" fill="url(#bg-grad1)" filter="url(#shadow-base)"></rect>
+                        
+                        <!-- Шапка календаря -->
+                        <path d="M28 64 C28 44.118 44.118 28 64 28 L192 28 C211.882 28 228 44.118 228 64 L228 80 L28 80 L28 64 Z" fill="url(#header-grad1)"></path>
+                        <circle cx="72" cy="54" r="6" fill="#ffffff" opacity="0.8"></circle>
+                        <circle cx="100" cy="54" r="6" fill="#ffffff" opacity="0.8"></circle>
+                        
+                        <!-- Глобус в центре -->
+                        <circle cx="116" cy="140" r="56" fill="url(#globe-grad)" filter="url(#shadow-float)"></circle>
+                        
+                        <!-- Линии параллелей и меридианов -->
+                        <ellipse cx="116" cy="140" rx="28" ry="56" stroke="rgba(255,255,255,0.3)" stroke-width="3" fill="none"></ellipse>
+                        <path d="M60 140 L172 140" stroke="rgba(255,255,255,0.3)" stroke-width="3" stroke-linecap="round"></path>
+                        
+                        <!-- Выделенный меридиан (Оранжевый) -->
+                        <path d="M116 84 C136 84 144 110 144 140 C144 170 136 196 116 196" stroke="url(#meridian-grad)" stroke-width="6" stroke-linecap="round" fill="none"></path>
+                        
+                        <!-- Парящая галочка (Задачи) -->
+                        <circle cx="180" cy="180" r="32" fill="url(#check-bg1)" filter="url(#shadow-float)"></circle>
+                        <path d="M164 180 L174 190 L196 168" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"></path>
+                    </svg>
