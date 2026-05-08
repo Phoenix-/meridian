@@ -11,13 +11,6 @@
             <RowDefinition Height="*"/>      <!-- timed grid -->
         </Grid.RowDefinitions>
 
-        <!-- Loading -->
-        <ProgressRing Grid.RowSpan="3"
-                      x:Name="LoadingRing"
-                      IsActive="False"
-                      HorizontalAlignment="Center" VerticalAlignment="Center"
-                      Width="48" Height="48"/>
-
         <!-- Error -->
         <InfoBar Grid.RowSpan="3"
                  x:Name="ErrorBar"

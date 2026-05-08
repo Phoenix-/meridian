@@ -11,12 +11,6 @@
             <ColumnDefinition Width="300"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Loading overlay -->
-        <ProgressRing Grid.ColumnSpan="2"
-                      IsActive="{x:Bind LocalViewModel.IsLoading, Mode=OneWay}"
-                      HorizontalAlignment="Center" VerticalAlignment="Center"
-                      Width="48" Height="48"/>
-
         <!-- Error -->
         <InfoBar Grid.ColumnSpan="2"
                  IsOpen="{x:Bind LocalViewModel.ErrorMessage, Mode=OneWay, Converter={StaticResource NotNullToBoolConverter}}"

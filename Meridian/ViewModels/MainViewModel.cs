@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.ComponentModel;
 using Meridian.Auth;
 using Meridian.Models;
 using Meridian.Services;
@@ -6,12 +7,15 @@ using Microsoft.UI.Dispatching;
 
 namespace Meridian.ViewModels;
 
-public partial class MainViewModel
+public partial class MainViewModel : ObservableObject
 {
     private readonly CalendarCache _cache;
     private readonly DispatcherQueue _dispatcher;
 
     private ICalendarView? _activeView;
+
+    [ObservableProperty]
+    private bool _isRefreshing;
 
     public MainViewModel(AccountManager accounts, DispatcherQueue dispatcher)
     {
@@ -21,6 +25,8 @@ public partial class MainViewModel
         _cache = new CalendarCache();
         _cache.SetFetcher(fetcher.FetchMonthAsync);
         _cache.DataRefreshed += OnDataRefreshed;
+        _cache.FetchingCountChanged += count =>
+            _dispatcher.TryEnqueue(() => IsRefreshing = count > 0);
     }
 
     // ── Called by MainWindow when the active view changes ─────────────────────

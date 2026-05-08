@@ -35,7 +35,13 @@
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
                 <Button Content="&#xE76B;" FontFamily="Segoe MDL2 Assets" Click="OnPrevClick" ToolTipService.ToolTip="Назад"/>
                 <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets" Click="OnNextClick" ToolTipService.ToolTip="Вперёд"/>
-                <Button Content="&#xE72C;" FontFamily="Segoe MDL2 Assets" Click="OnRefreshClick" ToolTipService.ToolTip="Обновить"/>
+                <Button x:Name="BtnRefresh" Click="OnRefreshClick" ToolTipService.ToolTip="Обновить">
+                    <Grid Width="16" Height="16">
+                        <TextBlock x:Name="RefreshIcon" Text="&#xE72C;" FontFamily="Segoe MDL2 Assets"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="14"/>
+                        <ProgressRing x:Name="RefreshRing" IsActive="False" Width="16" Height="16"/>
+                    </Grid>
+                </Button>
                 <Button x:Name="BtnAccounts" Content="&#xE77B;" FontFamily="Segoe MDL2 Assets"
                         ToolTipService.ToolTip="Аккаунты">
                     <Button.Flyout>

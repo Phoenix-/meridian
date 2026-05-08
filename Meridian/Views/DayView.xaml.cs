@@ -37,7 +37,6 @@ public sealed partial class DayView : Page, ICalendarView
 
     public void ApplySnapshot(CalendarSnapshot snapshot)
     {
-        LocalViewModel.IsLoading = !snapshot.IsComplete && snapshot.Events.Count == 0;
         LocalViewModel.ErrorMessage = snapshot.ErrorMessage;
 
         LocalViewModel.Events.Clear();
@@ -50,7 +49,6 @@ public sealed partial class DayView : Page, ICalendarView
 
 public partial class DayViewModel : ObservableObject
 {
-    [ObservableProperty] private bool _isLoading;
     [ObservableProperty] private string? _errorMessage;
     public ObservableCollection<CalendarEvent> Events { get; } = [];
     public ObservableCollection<TaskItem> Tasks { get; } = [];

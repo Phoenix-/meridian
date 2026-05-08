@@ -10,13 +10,6 @@
             <RowDefinition Height="*"/>     <!-- calendar grid -->
         </Grid.RowDefinitions>
 
-        <!-- Loading -->
-        <ProgressRing Grid.RowSpan="2"
-                      x:Name="LoadingRing"
-                      IsActive="False"
-                      HorizontalAlignment="Center" VerticalAlignment="Center"
-                      Width="48" Height="48"/>
-
         <!-- Error -->
         <InfoBar Grid.RowSpan="2"
                  x:Name="ErrorBar"
