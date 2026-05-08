@@ -3,7 +3,7 @@ using Microsoft.UI.Xaml.Data;
 
 namespace Meridian.Converters;
 
-public class NotNullToVisibilityConverter : IValueConverter
+public partial class NotNullToVisibilityConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language)
         => value is string s && !string.IsNullOrEmpty(s) ? Visibility.Visible : Visibility.Collapsed;
