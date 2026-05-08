@@ -51,8 +51,18 @@ public partial class MainViewModel : ObservableObject
         await LoadRangeAsync(first, first.AddMonths(1));
     }
 
+    public void PrepareForLoad()
+    {
+        Events.Clear();
+        Tasks.Clear();
+        IsLoading = true;
+        ErrorMessage = null;
+    }
+
     private async Task LoadRangeAsync(DateTime from, DateTime to)
     {
+        Events.Clear();
+        Tasks.Clear();
         IsLoading = true;
         ErrorMessage = null;
         try
