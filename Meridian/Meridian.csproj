@@ -8,7 +8,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWinUI>true</UseWinUI>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+    <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <DefaultLanguage>en-US</DefaultLanguage>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
   </PropertyGroup>
@@ -20,4 +23,14 @@
     <PackageReference Include="Google.Apis.Calendar.v3" Version="1.69.0.3667" />
     <PackageReference Include="Google.Apis.Tasks.v1" Version="1.68.0.3657" />
   </ItemGroup>
+  <!-- Workaround for https://github.com/microsoft/WindowsAppSDK/issues/6394 -->
+  <!-- Publish pipeline skips PRI and XBF generation; run it explicitly and include results -->
+  <Target Name="_IncludePriAndXbfInPublish" BeforeTargets="ComputeFilesToPublish" DependsOnTargets="_GenerateProjectPriFile">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(ProjectPriFullPath)" RelativePath="$(AssemblyName).pri" />
+      <_XbfFiles Include="$(OutDir)**\*.xbf" />
+      <ResolvedFileToPublish Include="@(_XbfFiles)" RelativePath="%(RecursiveDir)%(Filename)%(Extension)" />
+    </ItemGroup>
+  </Target>
+
 </Project>

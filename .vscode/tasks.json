@@ -17,5 +17,33 @@
                 "isDefault": true
             }
         }
+        ,
+        {
+            "label": "publish (win-x64 R2R)",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "publish",
+                "${workspaceFolder}/Meridian/Meridian.csproj",
+                "/p:PublishProfile=win-x64-r2r",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "problemMatcher": "$msCompile",
+            "group": "build"
+        }
+        ,
+        {
+            "label": "publish (win-x64 NativeAOT)",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "publish",
+                "${workspaceFolder}/Meridian/Meridian.csproj",
+                "/p:PublishProfile=win-x64-release",
+                "/consoleloggerparameters:NoSummary"
+            ],
+            "problemMatcher": "$msCompile",
+            "group": "build"
+        }
     ]
 }
