@@ -33,7 +33,7 @@ jobs:
         shell: pwsh
         run: |
           $secretsJson = Join-Path $env:GITHUB_WORKSPACE "client_secret.json"
-          dotnet publish Meridian/Meridian.csproj -p:PublishProfile=win-x64-release -p:SecretsJsonPath=$secretsJson
+          dotnet publish Meridian/Meridian.csproj -p:PublishProfile=win-x64-release "-p:SecretsJsonPath=$secretsJson"
 
       - name: Package
         shell: pwsh
