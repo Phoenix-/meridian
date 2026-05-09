@@ -402,13 +402,20 @@ public sealed partial class WeekView : Page, ICalendarView
     {
         var sv = FindScrollViewer(this);
         if (sv == null) return;
-        bool hasToday = Enumerable.Range(0, 7).Any(i => _weekStart.AddDays(i).Date == DateTime.Today);
-        double targetY = hasToday
-            ? WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay) - sv.ActualHeight / 2
-            : WeekViewLayout.TimeToY(new TimeSpan(8, 0, 0));
-        DispatcherQueue.TryEnqueue(
-            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            () => sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: true));
+
+        void DoScroll()
+        {
+            bool hasToday = Enumerable.Range(0, 7).Any(i => _weekStart.AddDays(i).Date == DateTime.Today);
+            double targetY = hasToday
+                ? WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay) - sv.ActualHeight / 2
+                : WeekViewLayout.TimeToY(new TimeSpan(8, 0, 0));
+            sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: true);
+        }
+
+        if (sv.ActualHeight > 0)
+            DoScroll();
+        else
+            sv.SizeChanged += (_, _) => DoScroll();
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)

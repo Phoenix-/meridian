@@ -358,12 +358,19 @@ public sealed partial class DayView : Page, ICalendarView
     {
         var sv = FindScrollViewer(this);
         if (sv == null) return;
-        double targetY = _date.Date == DateTime.Today
-            ? WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay) - sv.ActualHeight / 2
-            : WeekViewLayout.TimeToY(new TimeSpan(8, 0, 0));
-        DispatcherQueue.TryEnqueue(
-            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
-            () => sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: true));
+
+        void DoScroll()
+        {
+            double targetY = _date.Date == DateTime.Today
+                ? WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay) - sv.ActualHeight / 2
+                : WeekViewLayout.TimeToY(new TimeSpan(8, 0, 0));
+            sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: true);
+        }
+
+        if (sv.ActualHeight > 0)
+            DoScroll();
+        else
+            sv.SizeChanged += (_, _) => DoScroll();
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
