@@ -181,18 +181,6 @@ public sealed partial class DayView : Page, ICalendarView
         var gutterFg = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"];
         var lineBrush = (Brush)Application.Current.Resources["SystemControlForegroundBaseLowBrush"];
 
-        // Timezone label at very top of gutter
-        var tzLabel = new TextBlock
-        {
-            Text = GetTimezoneLabel(),
-            FontSize = 9,
-            VerticalAlignment = VerticalAlignment.Top,
-            Foreground = gutterFg,
-        };
-        Canvas.SetTop(tzLabel, 2);
-        Canvas.SetLeft(tzLabel, 2);
-        TimeGutter.Children.Add(tzLabel);
-
         // Hour labels
         for (int h = 0; h < 24; h++)
         {
@@ -390,12 +378,7 @@ public sealed partial class DayView : Page, ICalendarView
         return null;
     }
 
-    private static string GetTimezoneLabel()
-    {
-        var tz = TimeZoneInfo.Local;
-        var offset = tz.GetUtcOffset(DateTime.Now);
-        return $"GMT{(offset >= TimeSpan.Zero ? "+" : "")}{(int)offset.TotalHours:00}";
-    }
+
 
     private Color GetAccountColor(string? email, Dictionary<string, int> index)
     {
