@@ -51,6 +51,12 @@ public partial class MainViewModel : ObservableObject
         Refresh();
     }
 
+    public void NavigateToToday()
+    {
+        _activeView?.NavigateToToday();
+        Refresh();
+    }
+
     public void Refresh()
     {
         if (_activeView == null) return;

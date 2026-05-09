@@ -60,6 +60,7 @@ public sealed partial class DayView : Page, ICalendarView
 
     public void NavigatePrevious() { _date = _date.AddDays(-1); }
     public void NavigateNext()     { _date = _date.AddDays(1); }
+    public void NavigateToToday()  { _date = DateTime.Today; }
 
     public void ApplySnapshot(CalendarSnapshot snapshot)
     {

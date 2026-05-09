@@ -181,6 +181,13 @@ public sealed partial class MainWindow : Window
         SaveCurrentViewState();
     }
 
+    private void OnTodayClick(object sender, RoutedEventArgs e)
+    {
+        ViewModel.NavigateToToday();
+        UpdateDateLabel();
+        SaveCurrentViewState();
+    }
+
     private void OnNextClick(object sender, RoutedEventArgs e)
     {
         ViewModel.NavigateNext();

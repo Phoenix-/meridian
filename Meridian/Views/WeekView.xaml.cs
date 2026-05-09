@@ -72,6 +72,7 @@ public sealed partial class WeekView : Page, ICalendarView
 
     public void NavigatePrevious() { _date = _date.AddDays(-7); }
     public void NavigateNext()     { _date = _date.AddDays(7); }
+    public void NavigateToToday()  { _date = DateTime.Today; }
 
     public void ApplySnapshot(CalendarSnapshot snapshot)
     {
