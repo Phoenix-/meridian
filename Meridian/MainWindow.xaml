@@ -35,6 +35,7 @@
             <!-- Right controls -->
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
                 <Button Content="&#xE76B;" FontFamily="Segoe MDL2 Assets" Click="OnPrevClick" ToolTipService.ToolTip="Назад"/>
+                <Button Content="Сегодня" Click="OnTodayClick" ToolTipService.ToolTip="Перейти к сегодня"/>
                 <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets" Click="OnNextClick" ToolTipService.ToolTip="Вперёд"/>
                 <Button x:Name="BtnRefresh" Click="OnRefreshClick" ToolTipService.ToolTip="Обновить">
                     <Grid Width="16" Height="16">

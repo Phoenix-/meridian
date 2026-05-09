@@ -9,5 +9,6 @@ public interface ICalendarView
     string GetLabel();
     void NavigatePrevious();
     void NavigateNext();
+    void NavigateToToday();
     void ApplySnapshot(CalendarSnapshot snapshot);
 }
