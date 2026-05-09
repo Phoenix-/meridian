@@ -55,6 +55,16 @@ public sealed class CalendarCache
         return new CalendarSnapshot(events, tasks, isComplete, error);
     }
 
+    /// Marks all cached months stale so the next Request re-fetches everything.
+    /// Call after adding or removing an account.
+    public void InvalidateAll()
+    {
+        foreach (var entry in _months.Values)
+            if (entry.State == CacheState.Fresh)
+                entry.State = CacheState.Stale;
+        _tasksByAccount.Clear();
+    }
+
     // ── Internal fetch machinery ──────────────────────────────────────────────
 
     private Func<YearMonth, Task<(List<CalendarEvent>, Dictionary<string, List<TaskItem>>)>>? _fetcher;

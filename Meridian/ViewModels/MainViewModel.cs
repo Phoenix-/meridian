@@ -59,6 +59,12 @@ public partial class MainViewModel : ObservableObject
         _activeView.ApplySnapshot(snapshot);
     }
 
+    public void InvalidateAndRefresh()
+    {
+        _cache.InvalidateAll();
+        Refresh();
+    }
+
     // ── Cache event ───────────────────────────────────────────────────────────
 
     private void OnDataRefreshed(IReadOnlyList<YearMonth> refreshed)

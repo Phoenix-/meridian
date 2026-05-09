@@ -152,7 +152,7 @@ public static class GoogleOAuthClient
     {
         while (true)
         {
-            var ctx   = await Task.Run(() => listener.GetContextAsync(), ct);
+            var ctx   = await listener.GetContextAsync().WaitAsync(ct);
             var query = ctx.Request.QueryString;
 
             var html = "<html><body><script>window.close();</script><p>Авторизация завершена, можно закрыть вкладку.</p></body></html>"u8.ToArray();
