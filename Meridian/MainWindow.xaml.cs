@@ -200,7 +200,7 @@ public sealed partial class MainWindow : Window
         DiskCache.WriteViewState(viewName, view.GetCurrentDate());
     }
 
-    private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.Refresh();
+    private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.InvalidateAndRefresh();
 
     private async void OnAddAccountClick(object sender, RoutedEventArgs e)
     {
