@@ -24,9 +24,19 @@ public sealed class ViewStateData
     public DateTime Date { get; set; } = DateTime.Today;
 }
 
+public sealed class WindowStateData
+{
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public bool Maximized { get; set; }
+}
+
 [JsonSerializable(typeof(MonthCacheData))]
 [JsonSerializable(typeof(TasksCacheData))]
 [JsonSerializable(typeof(ViewStateData))]
+[JsonSerializable(typeof(WindowStateData))]
 [JsonSerializable(typeof(List<CalendarEvent>))]
 [JsonSerializable(typeof(List<TaskItem>))]
 [JsonSerializable(typeof(Dictionary<string, List<TaskItem>>))]
