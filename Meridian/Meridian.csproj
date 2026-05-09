@@ -11,10 +11,12 @@
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <EnableMsixTooling>true</EnableMsixTooling>
     <DefaultLanguage>en-US</DefaultLanguage>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <CsWinRTAotWarningLevel>2</CsWinRTAotWarningLevel>
   </PropertyGroup>
 
   <ItemGroup>
@@ -36,7 +38,8 @@
 
   <!-- Workaround for https://github.com/microsoft/WindowsAppSDK/issues/6394 -->
   <!-- Publish pipeline skips PRI and XBF generation; run it explicitly and include results -->
-  <Target Name="_IncludePriAndXbfInPublish" BeforeTargets="ComputeFilesToPublish" DependsOnTargets="_GenerateProjectPriFile">
+  <!-- DependsOnTargets changed from _GenerateProjectPriFile to GenerateProjectPriFile when EnableMsixTooling=true -->
+  <Target Name="_IncludePriAndXbfInPublish" BeforeTargets="ComputeFilesToPublish" DependsOnTargets="GenerateProjectPriFile">
     <ItemGroup>
       <ResolvedFileToPublish Include="$(ProjectPriFullPath)" RelativePath="$(AssemblyName).pri" />
       <_XbfFiles Include="$(OutDir)**\*.xbf" />

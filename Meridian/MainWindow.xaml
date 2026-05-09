@@ -50,17 +50,17 @@
                                 <TextBlock Text="Аккаунты" Style="{StaticResource SubtitleTextBlockStyle}"/>
                                 <ItemsControl x:Name="AccountsList">
                                     <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
+                                        <DataTemplate x:DataType="x:String">
                                             <Grid Margin="0,2">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="{Binding}"
+                                                <TextBlock Grid.Column="0" Text="{x:Bind}"
                                                            VerticalAlignment="Center" TextWrapping="NoWrap"
                                                            TextTrimming="CharacterEllipsis"/>
                                                 <Button Grid.Column="1" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets"
-                                                        Margin="8,0,0,0" Tag="{Binding}"
+                                                        Margin="8,0,0,0" Tag="{x:Bind}"
                                                         Click="OnRemoveAccountClick"
                                                         ToolTipService.ToolTip="Удалить аккаунт"/>
                                             </Grid>

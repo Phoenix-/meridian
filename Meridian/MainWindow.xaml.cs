@@ -1,3 +1,4 @@
+using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls;
@@ -36,9 +37,27 @@ public sealed partial class MainWindow : Window
             }
         };
 
-        AccountsList.ItemsSource = _accountManager.Accounts;
+        _accountManager.Accounts.CollectionChanged += OnAccountsChanged;
 
         _ = InitAsync();
+    }
+
+    private void OnAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        switch (e.Action)
+        {
+            case NotifyCollectionChangedAction.Add:
+                foreach (var item in e.NewItems!)
+                    AccountsList.Items.Add(item);
+                break;
+            case NotifyCollectionChangedAction.Remove:
+                foreach (var item in e.OldItems!)
+                    AccountsList.Items.Remove(item);
+                break;
+            case NotifyCollectionChangedAction.Reset:
+                AccountsList.Items.Clear();
+                break;
+        }
     }
 
     private void UpdateTitleBarPadding()
