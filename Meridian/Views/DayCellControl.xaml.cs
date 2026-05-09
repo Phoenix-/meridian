@@ -49,7 +49,10 @@ public sealed partial class DayCellControl : UserControl
             Margin = new Thickness(2, 1, 2, 2),
         };
 
-        ChipsStack.SizeChanged += (_, _) => Refit();
+        ChipsStack.SizeChanged += (_, args) =>
+        {
+            if (args.NewSize.Height > 0) Refit();
+        };
         ChipsStack.Loaded += (_, _) =>
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Refit);
     }
@@ -103,7 +106,13 @@ public sealed partial class DayCellControl : UserControl
         if (_overflowLabel == null) return;
 
         double available = ChipsStack.ActualHeight - ChipsStack.Margin.Top - ChipsStack.Margin.Bottom;
-        if (available <= 0) return;
+        if (available <= 0)
+        {
+            // Not laid out yet — show all chips, SizeChanged will refit when height arrives
+            foreach (var chip in _chips) chip.Visibility = Visibility.Visible;
+            if (_overflowLabel != null) _overflowLabel.Visibility = Visibility.Collapsed;
+            return;
+        }
         if (available == _lastFitHeight) return;
         _lastFitHeight = available;
 
