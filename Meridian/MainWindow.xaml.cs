@@ -54,7 +54,12 @@ public sealed partial class MainWindow : Window
                     break;
                 case NotifyCollectionChangedAction.Remove:
                     foreach (var item in e.OldItems!)
-                        AccountsList.Items.Remove(item);
+                    {
+                        if (item is not AccountId removed) break;
+                        for (int i = AccountsList.Items.Count - 1; i >= 0; i--)
+                            if (AccountsList.Items[i] is AccountId aid && aid == removed)
+                            { AccountsList.Items.RemoveAt(i); break; }
+                    }
                     break;
                 case NotifyCollectionChangedAction.Reset:
                     AccountsList.Items.Clear();
@@ -169,7 +174,7 @@ public sealed partial class MainWindow : Window
         try
         {
             await _accountManager.AddAccountAsync(GoogleOAuthClient.ProviderName);
-            ViewModel.Refresh();
+            ViewModel.InvalidateAndRefresh();
         }
         catch (Exception ex)
         {
@@ -182,7 +187,7 @@ public sealed partial class MainWindow : Window
         if (sender is Button btn && btn.Tag is AccountId id)
         {
             await _accountManager.RemoveAccountAsync(id);
-            ViewModel.Refresh();
+            ViewModel.InvalidateAndRefresh();
         }
     }
 }
