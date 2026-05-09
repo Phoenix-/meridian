@@ -395,19 +395,20 @@ public sealed partial class WeekView : Page, ICalendarView
             DayColumnsGrid.Children.Add(wrapper);
         }
 
-        _ = ScrollToCurrentTimeAsync();
+        ScrollToTime();
     }
 
-    private async Task ScrollToCurrentTimeAsync()
+    private void ScrollToTime()
     {
-        await System.Threading.Tasks.Task.Delay(50);
         var sv = FindScrollViewer(this);
         if (sv == null) return;
         bool hasToday = Enumerable.Range(0, 7).Any(i => _weekStart.AddDays(i).Date == DateTime.Today);
         double targetY = hasToday
             ? WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay) - sv.ActualHeight / 2
             : WeekViewLayout.TimeToY(new TimeSpan(8, 0, 0));
-        sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: false);
+        DispatcherQueue.TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () => sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: true));
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
