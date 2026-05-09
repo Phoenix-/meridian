@@ -186,12 +186,11 @@ public sealed partial class DayView : Page, ICalendarView
         {
             Text = GetTimezoneLabel(),
             FontSize = 9,
+            VerticalAlignment = VerticalAlignment.Top,
             Foreground = gutterFg,
-            TextAlignment = TextAlignment.Center,
-            Width = 56,
         };
         Canvas.SetTop(tzLabel, 2);
-        Canvas.SetLeft(tzLabel, 0);
+        Canvas.SetLeft(tzLabel, 2);
         TimeGutter.Children.Add(tzLabel);
 
         // Hour labels
@@ -202,9 +201,8 @@ public sealed partial class DayView : Page, ICalendarView
             {
                 Text = $"{h:00}:00",
                 FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Top,
                 Foreground = gutterFg,
-                TextAlignment = TextAlignment.Right,
-                Width = 48,
             };
             Canvas.SetTop(label, y - 8);
             Canvas.SetLeft(label, 2);
@@ -281,30 +279,13 @@ public sealed partial class DayView : Page, ICalendarView
             .ToList();
 
         var allEvents = dayEvents.Concat(taskEvents).ToList();
-        var layouts = WeekViewLayout.LayoutDay(allEvents, 1000.0); // width corrected in SizeChanged
 
-        foreach (var layout in layouts)
-        {
-            bool isTask = taskEvents.Any(t => t.Id == layout.Event.Id);
-            var color = isTask ? TaskColor : GetAccountColor(layout.Event.AccountEmail, accountIndex);
-
-            var block = new WeekEventBlock();
-            block.Apply(layout.Event.Title, layout.Event.Start, layout.Event.End, color, layout.Height);
-            block.Width  = Math.Max(layout.Width, 20);
-            block.Height = layout.Height;
-            Canvas.SetTop(block, layout.Top);
-            Canvas.SetLeft(block, layout.Left + 1);
-            Canvas.SetZIndex(block, layout.ZIndex);
-            DayCanvas.Children.Add(block);
-            _eventBlocks.Add((block, layout));
-        }
-
-        // Current time marker
+        // Now-line (position only, no dot yet — dot goes in DayColumnWrapper after ApplyWidth)
+        Line? nowLine = null;
         if (_date.Date == DateTime.Today)
         {
             double nowY = WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay);
-
-            var nowLine = new Line
+            nowLine = new Line
             {
                 X1 = 0, X2 = 2000,
                 Y1 = nowY, Y2 = nowY,
@@ -331,16 +312,47 @@ public sealed partial class DayView : Page, ICalendarView
         if (_columnSizeChanged != null)
             DayColumnWrapper.SizeChanged -= _columnSizeChanged;
 
+        bool blocksBuilt = false;
+
         void ApplyWidth(double colWidth)
         {
             if (colWidth < 10) return;
             clip.Rect = new Windows.Foundation.Rect(0, 0, colWidth, totalHeight);
-            var newLayouts = WeekViewLayout.LayoutDay(allEvents, colWidth);
-            for (int j = 0; j < newLayouts.Count && j < _eventBlocks.Count; j++)
+
+            if (!blocksBuilt)
             {
-                var (block, _) = _eventBlocks[j];
-                block.Width = newLayouts[j].Width;
-                Canvas.SetLeft(block, newLayouts[j].Left + 1);
+                // Build event blocks once we know the real column width
+                blocksBuilt = true;
+                var layouts = WeekViewLayout.LayoutDay(allEvents, colWidth);
+                foreach (var layout in layouts)
+                {
+                    bool isTask = taskEvents.Any(t => t.Id == layout.Event.Id);
+                    var color = isTask ? TaskColor : GetAccountColor(layout.Event.AccountEmail, accountIndex);
+                    var block = new WeekEventBlock();
+                    block.Apply(layout.Event.Title, layout.Event.Start, layout.Event.End, color, layout.Height);
+                    block.Width  = Math.Max(layout.Width, 20);
+                    block.Height = layout.Height;
+                    Canvas.SetTop(block, layout.Top);
+                    Canvas.SetLeft(block, layout.Left + 1);
+                    Canvas.SetZIndex(block, layout.ZIndex);
+                    // Insert before now-line so it renders beneath
+                    if (nowLine != null)
+                        DayCanvas.Children.Insert(DayCanvas.Children.IndexOf(nowLine), block);
+                    else
+                        DayCanvas.Children.Add(block);
+                    _eventBlocks.Add((block, layout));
+                }
+            }
+            else
+            {
+                // Reposition existing blocks on resize
+                var newLayouts = WeekViewLayout.LayoutDay(allEvents, colWidth);
+                for (int j = 0; j < newLayouts.Count && j < _eventBlocks.Count; j++)
+                {
+                    var (block, _) = _eventBlocks[j];
+                    block.Width = newLayouts[j].Width;
+                    Canvas.SetLeft(block, newLayouts[j].Left + 1);
+                }
             }
         }
 
@@ -351,18 +363,19 @@ public sealed partial class DayView : Page, ICalendarView
         if (DayColumnWrapper.ActualWidth >= 10)
             ApplyWidth(DayColumnWrapper.ActualWidth);
 
-        _ = ScrollToCurrentTimeAsync();
+        ScrollToTime();
     }
 
-    private async Task ScrollToCurrentTimeAsync()
+    private void ScrollToTime()
     {
-        await System.Threading.Tasks.Task.Delay(50);
         var sv = FindScrollViewer(this);
         if (sv == null) return;
         double targetY = _date.Date == DateTime.Today
             ? WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay) - sv.ActualHeight / 2
             : WeekViewLayout.TimeToY(new TimeSpan(8, 0, 0));
-        sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: false);
+        DispatcherQueue.TryEnqueue(
+            Microsoft.UI.Dispatching.DispatcherQueuePriority.Low,
+            () => sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: true));
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
