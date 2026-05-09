@@ -1,0 +1,79 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 02:00 UTC every night
+  workflow_dispatch:      # manual trigger
+
+jobs:
+  build:
+    name: Build (NativeAOT)
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Write client_secret.json
+        shell: pwsh
+        env:
+          CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_CLIENT_SECRET_JSON }}
+        run: |
+          $env:CLIENT_SECRET_JSON | Set-Content -Path "client_secret.json" -Encoding UTF8
+
+      - name: Publish (NativeAOT)
+        shell: pwsh
+        run: |
+          dotnet publish Meridian/Meridian.csproj -p:PublishProfile=win-x64-release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = "nightly-$(Get-Date -Format 'yyyyMMdd')"
+          Compress-Archive `
+            -Path "Meridian/bin/publish/win-x64/*" `
+            -DestinationPath "Meridian-$version.zip"
+          echo "ZIP_NAME=Meridian-$version.zip" >> $env:GITHUB_ENV
+          echo "RELEASE_TAG=nightly" >> $env:GITHUB_ENV
+          echo "RELEASE_NAME=Nightly $((Get-Date -Format 'yyyy-MM-dd'))" >> $env:GITHUB_ENV
+
+      - name: Update nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_NAME }}
+          prerelease: true
+          files: ${{ env.ZIP_NAME }}
+
+  # installer:
+  #   name: Build installer (WiX / MSIX)
+  #   needs: build
+  #   runs-on: windows-latest
+  #   permissions:
+  #     contents: write
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #     - name: Download build artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: publish-win-x64
+  #         path: publish/
+  #     - name: Build installer
+  #       shell: pwsh
+  #       run: |
+  #         # wix build installer.wxs -o Meridian-setup.msi
+  #         # or: dotnet publish -p:GenerateAppxPackage=true
+  #         throw "Not implemented yet"
+  #     - name: Upload installer to release
+  #       uses: softprops/action-gh-release@v2
+  #       with:
+  #         tag_name: nightly
+  #         files: Meridian-setup.msi
