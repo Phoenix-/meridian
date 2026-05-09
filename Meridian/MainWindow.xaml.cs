@@ -2,7 +2,10 @@ using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Windowing;
+using Windows.Graphics;
 using Meridian.Auth;
+using Meridian.Models;
 using Meridian.Services;
 using Meridian.ViewModels;
 using Meridian.Views;
@@ -14,6 +17,9 @@ public sealed partial class MainWindow : Window
     public MainViewModel ViewModel { get; }
 
     private readonly AccountManager _accountManager;
+    private bool _isMaximized;
+    private bool _restoreMaximized;
+    private (int W, int H, int X, int Y) _normalBounds;
 
     public MainWindow(ProviderRegistry providers)
     {
@@ -24,8 +30,11 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
-        AppWindow.Changed += (_, _) => UpdateTitleBarPadding();
+        AppWindow.Changed += OnAppWindowChanged;
         UpdateTitleBarPadding();
+
+        RestoreWindowState();
+        AppWindow.Closing += (_, _) => SaveWindowState();
 
         _accountManager = new AccountManager(providers);
         ViewModel = new MainViewModel(_accountManager, providers, DispatcherQueue);
@@ -69,6 +78,31 @@ public sealed partial class MainWindow : Window
         });
     }
 
+    private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        UpdateTitleBarPadding();
+        if (args.DidSizeChange)
+        {
+            // OverlappedPresenter cast is broken in AOT — detect maximized via display work area.
+            var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+            if (area != null)
+            {
+                var wa = area.WorkArea;
+                var sz = AppWindow.Size;
+                var pos = AppWindow.Position;
+                _isMaximized = sz.Width >= wa.Width - 2 && sz.Height >= wa.Height - 2
+                               && pos.X <= wa.X + 2 && pos.Y <= wa.Y + 2;
+
+                if (!_isMaximized)
+                    _normalBounds = (sz.Width, sz.Height, pos.X, pos.Y);
+
+                // Save immediately so Closing (which fires after Windows un-maximizes the window) sees correct state.
+                SaveWindowState();
+            }
+        }
+    }
+
     private void UpdateTitleBarPadding()
     {
         AppTitleBar.Padding = new Thickness(
@@ -80,6 +114,13 @@ public sealed partial class MainWindow : Window
 
     private async Task InitAsync()
     {
+        if (_restoreMaximized)
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_MAXIMIZE);
+            _restoreMaximized = false;
+        }
+
         try
         {
             await _accountManager.LoadSavedAccountsAsync();
@@ -205,6 +246,54 @@ public sealed partial class MainWindow : Window
             _         => "Day",
         };
         DiskCache.WriteViewState(viewName, view.GetCurrentDate());
+    }
+
+    private void RestoreWindowState()
+    {
+        var saved = DiskCache.ReadWindowState();
+        if (saved == null) return;
+
+        if (saved.Maximized)
+        {
+            _restoreMaximized = true;
+            _normalBounds = (saved.Width, saved.Height, saved.X, saved.Y);
+            return;
+        }
+
+        // Check that the saved position is on a connected display (use Bounds, not WorkArea,
+        // because snap positions can place a window partly outside the work area near the taskbar).
+        var area = Microsoft.UI.Windowing.DisplayArea.GetFromPoint(
+            new PointInt32(saved.X, saved.Y),
+            Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+        bool onScreen = area != null &&
+            saved.X >= area.OuterBounds.X &&
+            saved.X < area.OuterBounds.X + area.OuterBounds.Width &&
+            saved.Y >= area.OuterBounds.Y &&
+            saved.Y < area.OuterBounds.Y + area.OuterBounds.Height;
+
+        if (onScreen)
+            AppWindow.MoveAndResize(new RectInt32(saved.X, saved.Y, saved.Width, saved.Height));
+        else
+            AppWindow.Resize(new SizeInt32(saved.Width, saved.Height));
+    }
+
+    private void SaveWindowState()
+    {
+        // When maximized, AppWindow.Size/Position report the maximized geometry.
+        // Save the last known normal bounds so we can restore correctly after un-maximizing.
+        var (w, h, x, y) = _isMaximized && _normalBounds != default
+            ? _normalBounds
+            : (AppWindow.Size.Width, AppWindow.Size.Height, AppWindow.Position.X, AppWindow.Position.Y);
+
+        var data = new WindowStateData
+        {
+            Width     = w,
+            Height    = h,
+            X         = x,
+            Y         = y,
+            Maximized = _isMaximized,
+        };
+        DiskCache.WriteWindowState(data);
     }
 
     private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.InvalidateAndRefresh();
