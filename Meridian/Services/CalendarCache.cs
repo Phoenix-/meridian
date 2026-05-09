@@ -76,7 +76,25 @@ public sealed class CalendarCache
     private CachedMonth GetOrCreate(YearMonth key)
     {
         if (!_months.TryGetValue(key, out var entry))
-            _months[key] = entry = new CachedMonth();
+        {
+            entry = new CachedMonth();
+            var disk = DiskCache.ReadMonth(key.Year, key.Month);
+            if (disk != null)
+            {
+                entry.Events = disk.Events;
+                entry.State = CacheState.Stale; // show immediately, re-fetch in background
+            }
+            _months[key] = entry;
+
+            // Load tasks from disk once on first cold start (any month miss triggers it).
+            if (_tasksByAccount.Count == 0)
+            {
+                var diskTasks = DiskCache.ReadTasks();
+                if (diskTasks != null)
+                    foreach (var (email, tasks) in diskTasks.TasksByAccount)
+                        _tasksByAccount[email] = tasks;
+            }
+        }
         return entry;
     }
 
@@ -116,6 +134,9 @@ public sealed class CalendarCache
             entry.State = CacheState.Fresh;
             foreach (var (email, tasks) in tasksByAccount)
                 _tasksByAccount[email] = tasks;
+
+            DiskCache.WriteMonth(ym.Year, ym.Month, events);
+            DiskCache.WriteTasks(new Dictionary<string, List<TaskItem>>(_tasksByAccount));
         }
         catch
         {
