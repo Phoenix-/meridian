@@ -18,6 +18,9 @@ internal static class DiskCache
     private static string TasksPath =>
         Path.Combine(CacheDir, "tasks.json");
 
+    private static string ViewStatePath =>
+        Path.Combine(CacheDir, "viewstate.json");
+
     // ── Read ──────────────────────────────────────────────────────────────────
 
     public static MonthCacheData? ReadMonth(int year, int month)
@@ -84,6 +87,30 @@ internal static class DiskCache
             };
             using var stream = File.Create(TasksPath);
             JsonSerializer.Serialize(stream, data, DiskCacheJsonContext.Default.TasksCacheData);
+        }
+        catch { }
+    }
+
+    public static ViewStateData? ReadViewState()
+    {
+        try
+        {
+            var path = ViewStatePath;
+            if (!File.Exists(path)) return null;
+            using var stream = File.OpenRead(path);
+            return JsonSerializer.Deserialize(stream, DiskCacheJsonContext.Default.ViewStateData);
+        }
+        catch { return null; }
+    }
+
+    public static void WriteViewState(string view, DateTime date)
+    {
+        try
+        {
+            EnsureDir();
+            var data = new ViewStateData { View = view, Date = date };
+            using var stream = File.Create(ViewStatePath);
+            JsonSerializer.Serialize(stream, data, DiskCacheJsonContext.Default.ViewStateData);
         }
         catch { }
     }

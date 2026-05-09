@@ -17,8 +17,16 @@ public sealed class TasksCacheData
     public Dictionary<string, List<TaskItem>> TasksByAccount { get; set; } = [];
 }
 
+public sealed class ViewStateData
+{
+    // "Day", "Week", "Month"
+    public string View { get; set; } = "Day";
+    public DateTime Date { get; set; } = DateTime.Today;
+}
+
 [JsonSerializable(typeof(MonthCacheData))]
 [JsonSerializable(typeof(TasksCacheData))]
+[JsonSerializable(typeof(ViewStateData))]
 [JsonSerializable(typeof(List<CalendarEvent>))]
 [JsonSerializable(typeof(List<TaskItem>))]
 [JsonSerializable(typeof(Dictionary<string, List<TaskItem>>))]

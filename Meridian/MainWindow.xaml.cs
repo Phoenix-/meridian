@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls;
 using Meridian.Auth;
+using Meridian.Services;
 using Meridian.ViewModels;
 using Meridian.Views;
 
@@ -86,7 +87,20 @@ public sealed partial class MainWindow : Window
             if (_accountManager.Accounts.Count == 0)
                 await _accountManager.AddAccountAsync(GoogleOAuthClient.ProviderName);
 
-            NavigateDay();
+            var saved = DiskCache.ReadViewState();
+            if (saved != null)
+            {
+                switch (saved.View)
+                {
+                    case "Week":  NavigateWeek(saved.Date);  break;
+                    case "Month": NavigateMonth(saved.Date); break;
+                    default:      NavigateDay(saved.Date);   break;
+                }
+            }
+            else
+            {
+                NavigateDay();
+            }
         }
         catch (Exception ex)
         {
@@ -123,25 +137,31 @@ public sealed partial class MainWindow : Window
     private DateTime GetCurrentDate() =>
         ContentFrame.Content is ICalendarView v ? v.GetCurrentDate() : DateTime.Today;
 
-    private void NavigateDay()
+    private void NavigateDay(DateTime? date = null)
     {
+        var d = date ?? GetCurrentDate();
         SetActiveButton(BtnDay);
-        ContentFrame.Navigate(typeof(DayView), (ViewModel, GetCurrentDate()));
+        ContentFrame.Navigate(typeof(DayView), (ViewModel, d));
         UpdateDateLabel();
+        DiskCache.WriteViewState("Day", d);
     }
 
-    private void NavigateWeek()
+    private void NavigateWeek(DateTime? date = null)
     {
+        var d = date ?? GetCurrentDate();
         SetActiveButton(BtnWeek);
-        ContentFrame.Navigate(typeof(WeekView), (ViewModel, GetCurrentDate()));
+        ContentFrame.Navigate(typeof(WeekView), (ViewModel, d));
         UpdateDateLabel();
+        DiskCache.WriteViewState("Week", d);
     }
 
-    private void NavigateMonth()
+    private void NavigateMonth(DateTime? date = null)
     {
+        var d = date ?? GetCurrentDate();
         SetActiveButton(BtnMonth);
-        ContentFrame.Navigate(typeof(MonthView), (ViewModel, GetCurrentDate()));
+        ContentFrame.Navigate(typeof(MonthView), (ViewModel, d));
         UpdateDateLabel();
+        DiskCache.WriteViewState("Month", d);
     }
 
     private void UpdateDateLabel()
@@ -158,12 +178,26 @@ public sealed partial class MainWindow : Window
     {
         ViewModel.NavigatePrevious();
         UpdateDateLabel();
+        SaveCurrentViewState();
     }
 
     private void OnNextClick(object sender, RoutedEventArgs e)
     {
         ViewModel.NavigateNext();
         UpdateDateLabel();
+        SaveCurrentViewState();
+    }
+
+    private void SaveCurrentViewState()
+    {
+        if (ContentFrame.Content is not ICalendarView view) return;
+        var viewName = view switch
+        {
+            WeekView  => "Week",
+            MonthView => "Month",
+            _         => "Day",
+        };
+        DiskCache.WriteViewState(viewName, view.GetCurrentDate());
     }
 
     private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.Refresh();
