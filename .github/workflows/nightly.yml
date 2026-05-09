@@ -26,12 +26,14 @@ jobs:
         env:
           CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_CLIENT_SECRET_JSON }}
         run: |
-          $env:CLIENT_SECRET_JSON | Set-Content -Path "client_secret.json" -Encoding UTF8
+          $path = Join-Path $env:GITHUB_WORKSPACE "client_secret.json"
+          $env:CLIENT_SECRET_JSON | Set-Content -Path $path -Encoding UTF8
 
       - name: Publish (NativeAOT)
         shell: pwsh
         run: |
-          dotnet publish Meridian/Meridian.csproj -p:PublishProfile=win-x64-release
+          $secretsJson = Join-Path $env:GITHUB_WORKSPACE "client_secret.json"
+          dotnet publish Meridian/Meridian.csproj -p:PublishProfile=win-x64-release -p:SecretsJsonPath=$secretsJson
 
       - name: Package
         shell: pwsh
