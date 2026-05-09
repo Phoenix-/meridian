@@ -21,19 +21,22 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Write client_secret.json
+      - name: Generate Secrets.g.cs
         shell: pwsh
         env:
           CLIENT_SECRET_JSON: ${{ secrets.GOOGLE_CLIENT_SECRET_JSON }}
         run: |
-          $path = Join-Path $env:GITHUB_WORKSPACE "client_secret.json"
-          $env:CLIENT_SECRET_JSON | Set-Content -Path $path -Encoding UTF8
+          $secretsPath = Join-Path $env:GITHUB_WORKSPACE "client_secret.json"
+          $env:CLIENT_SECRET_JSON | Set-Content -Path $secretsPath -Encoding UTF8
+          $outputPath = Join-Path $env:GITHUB_WORKSPACE "Meridian/Auth/Secrets.g.cs"
+          & "$env:GITHUB_WORKSPACE/Meridian/generate-secrets.ps1" -SecretsJson $secretsPath -OutputFile $outputPath
+          Write-Host "Generated Secrets.g.cs:"
+          Get-Content $outputPath
 
       - name: Publish (NativeAOT)
         shell: pwsh
         run: |
-          $secretsJson = Join-Path $env:GITHUB_WORKSPACE "client_secret.json"
-          dotnet publish Meridian/Meridian.csproj -p:PublishProfile=win-x64-release "-p:SecretsJsonPath=$secretsJson"
+          dotnet publish Meridian/Meridian.csproj -p:PublishProfile=win-x64-release
 
       - name: Package
         shell: pwsh
