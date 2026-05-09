@@ -17,11 +17,11 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool _isRefreshing;
 
-    public MainViewModel(AccountManager accounts, DispatcherQueue dispatcher)
+    public MainViewModel(AccountManager accounts, ProviderRegistry providers, DispatcherQueue dispatcher)
     {
         _dispatcher = dispatcher;
 
-        var fetcher = new GoogleCalendarFetcher(accounts);
+        var fetcher = new GoogleCalendarFetcher(accounts, providers);
         _cache = new CalendarCache();
         _cache.SetFetcher(fetcher.FetchMonthAsync);
         _cache.DataRefreshed += OnDataRefreshed;

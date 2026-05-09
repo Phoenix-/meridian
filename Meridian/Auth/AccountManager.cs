@@ -1,53 +1,38 @@
-using Google.Apis.Auth.OAuth2;
 using System.Collections.ObjectModel;
 
 namespace Meridian.Auth;
 
-public class AccountManager
+public class AccountManager(ProviderRegistry providers)
 {
-    private readonly Dictionary<string, UserCredential> _credentials = [];
-
-    public ObservableCollection<string> Accounts { get; } = [];
+    public ObservableCollection<AccountId> Accounts { get; } = [];
 
     public async Task LoadSavedAccountsAsync()
     {
-        foreach (var email in GoogleAuthService.GetSavedAccounts())
+        foreach (var provider in providers.All)
         {
-            if (_credentials.ContainsKey(email)) continue;
-            var credential = await GoogleAuthService.LoadAccountAsync(email);
-            _credentials[email] = credential;
-            Accounts.Add(email);
+            foreach (var id in provider.GetSavedAccounts())
+            {
+                if (Accounts.Contains(id)) continue;
+                provider.LoadAccount(id);
+                Accounts.Add(id);
+            }
         }
+        await Task.CompletedTask;
     }
 
-    public async Task<string> AddAccountAsync()
+    public async Task<AccountId> AddAccountAsync(string providerName, CancellationToken ct = default)
     {
-        var credential = await GoogleAuthService.AddAccountAsync();
-        var email = await ResolveEmailAsync(credential);
-
-        _credentials[email] = credential;
-        if (!Accounts.Contains(email))
-            Accounts.Add(email);
-
-        return email;
+        var id = await providers.Get(providerName).AddAccountAsync(ct);
+        if (!Accounts.Contains(id))
+            Accounts.Add(id);
+        return id;
     }
 
-    public async Task RemoveAccountAsync(string email)
+    public async Task RemoveAccountAsync(AccountId id)
     {
-        await GoogleAuthService.RevokeAccountAsync(email);
-        _credentials.Remove(email);
-        Accounts.Remove(email);
+        await providers.Get(id).RevokeAccountAsync(id);
+        Accounts.Remove(id);
     }
 
-    public IReadOnlyDictionary<string, UserCredential> Credentials => _credentials;
-
-    private static async Task<string> ResolveEmailAsync(UserCredential credential)
-    {
-        using var http = new System.Net.Http.HttpClient();
-        http.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", credential.Token.AccessToken);
-        var resp = await http.GetStringAsync("https://www.googleapis.com/oauth2/v3/userinfo");
-        var doc = System.Text.Json.JsonDocument.Parse(resp);
-        return doc.RootElement.GetProperty("email").GetString() ?? credential.UserId;
-    }
+    public IReadOnlyList<AccountId> Ids => Accounts;
 }

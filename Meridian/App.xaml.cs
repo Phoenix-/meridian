@@ -1,3 +1,4 @@
+using Meridian.Auth;
 using Microsoft.UI.Xaml;
 
 namespace Meridian;
@@ -13,7 +14,10 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        MainWindow = new MainWindow();
+        var providers = new ProviderRegistry();
+        providers.Register(new GoogleCalendarProvider());
+
+        MainWindow = new MainWindow(providers);
         MainWindow.Activate();
     }
 }

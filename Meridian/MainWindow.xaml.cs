@@ -14,7 +14,7 @@ public sealed partial class MainWindow : Window
 
     private readonly AccountManager _accountManager;
 
-    public MainWindow()
+    public MainWindow(ProviderRegistry providers)
     {
         InitializeComponent();
 
@@ -26,8 +26,8 @@ public sealed partial class MainWindow : Window
         AppWindow.Changed += (_, _) => UpdateTitleBarPadding();
         UpdateTitleBarPadding();
 
-        _accountManager = new AccountManager();
-        ViewModel = new MainViewModel(_accountManager, DispatcherQueue);
+        _accountManager = new AccountManager(providers);
+        ViewModel = new MainViewModel(_accountManager, providers, DispatcherQueue);
         ViewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ViewModel.IsRefreshing))
@@ -44,20 +44,23 @@ public sealed partial class MainWindow : Window
 
     private void OnAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        switch (e.Action)
+        DispatcherQueue.TryEnqueue(() =>
         {
-            case NotifyCollectionChangedAction.Add:
-                foreach (var item in e.NewItems!)
-                    AccountsList.Items.Add(item);
-                break;
-            case NotifyCollectionChangedAction.Remove:
-                foreach (var item in e.OldItems!)
-                    AccountsList.Items.Remove(item);
-                break;
-            case NotifyCollectionChangedAction.Reset:
-                AccountsList.Items.Clear();
-                break;
-        }
+            switch (e.Action)
+            {
+                case NotifyCollectionChangedAction.Add:
+                    foreach (var item in e.NewItems!)
+                        AccountsList.Items.Add(item);
+                    break;
+                case NotifyCollectionChangedAction.Remove:
+                    foreach (var item in e.OldItems!)
+                        AccountsList.Items.Remove(item);
+                    break;
+                case NotifyCollectionChangedAction.Reset:
+                    AccountsList.Items.Clear();
+                    break;
+            }
+        });
     }
 
     private void UpdateTitleBarPadding()
@@ -71,12 +74,38 @@ public sealed partial class MainWindow : Window
 
     private async Task InitAsync()
     {
-        await _accountManager.LoadSavedAccountsAsync();
+        try
+        {
+            await _accountManager.LoadSavedAccountsAsync();
 
-        if (_accountManager.Accounts.Count == 0)
-            await _accountManager.AddAccountAsync();
+            if (_accountManager.Accounts.Count == 0)
+                await _accountManager.AddAccountAsync(GoogleOAuthClient.ProviderName);
 
-        NavigateDay();
+            NavigateDay();
+        }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("Ошибка инициализации", ex.Message);
+        }
+    }
+
+    private async Task ShowErrorAsync(string title, string message)
+    {
+        // XamlRoot may not be ready yet if called very early — log and bail
+        var root = Content?.XamlRoot;
+        if (root is null)
+        {
+            System.Diagnostics.Debug.WriteLine($"[{title}] {message}");
+            return;
+        }
+        var dialog = new ContentDialog
+        {
+            Title = title,
+            Content = message,
+            CloseButtonText = "OK",
+            XamlRoot = root,
+        };
+        await dialog.ShowAsync();
     }
 
     private void SetActiveButton(Button active)
@@ -139,21 +168,20 @@ public sealed partial class MainWindow : Window
         AccountsFlyout.Hide();
         try
         {
-            await _accountManager.AddAccountAsync();
+            await _accountManager.AddAccountAsync(GoogleOAuthClient.ProviderName);
             ViewModel.Refresh();
         }
         catch (Exception ex)
         {
-            // Surface error through active view on next snapshot
-            _ = ex;
+            await ShowErrorAsync("Ошибка добавления аккаунта", ex.Message);
         }
     }
 
     private async void OnRemoveAccountClick(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is string email)
+        if (sender is Button btn && btn.Tag is AccountId id)
         {
-            await _accountManager.RemoveAccountAsync(email);
+            await _accountManager.RemoveAccountAsync(id);
             ViewModel.Refresh();
         }
     }
