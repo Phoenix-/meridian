@@ -176,8 +176,10 @@ public sealed class CalendarCache
 
         foreach (var ym in MonthsForRange(from, to))
         {
-            if (!_months.TryGetValue(ym, out var entry) ||
-                entry.State is CacheState.Empty or CacheState.Loading)
+            if (!_months.TryGetValue(ym, out var entry) || entry.State == CacheState.Empty)
+                continue;
+            // While loading, show whatever we already have (disk cache or previous fetch).
+            if (entry.State == CacheState.Loading && entry.Events.Count == 0)
                 continue;
 
             foreach (var e in entry.Events)
