@@ -17,6 +17,7 @@ public sealed partial class WeekView : Page, ICalendarView
     private DateTime _date;
     private DateTime _weekStart;
     private CalendarSnapshot? _lastSnapshot;
+    private int? _lastContentHash;
 
     private Line? _nowLine;
     private Line? _nowLineOverlay;
@@ -113,13 +114,17 @@ public sealed partial class WeekView : Page, ICalendarView
         return $"{monday.Day} {monday:MMMM yyyy} – {sunday.Day} {sunday:MMMM yyyy}";
     }
 
-    public void NavigatePrevious() { _date = _date.AddDays(-7); }
-    public void NavigateNext()     { _date = _date.AddDays(7); }
-    public void NavigateToToday()  { _date = DateTime.Today; }
+    public void NavigatePrevious() { _date = _date.AddDays(-7); _lastContentHash = null; }
+    public void NavigateNext()     { _date = _date.AddDays(7);  _lastContentHash = null; }
+    public void NavigateToToday()  { _date = DateTime.Today;    _lastContentHash = null; }
 
     public void ApplySnapshot(CalendarSnapshot snapshot)
     {
         _lastSnapshot = snapshot;
+        var (from, to) = GetRange();
+        int hash = snapshot.ContentHash(from, to);
+        if (_lastContentHash == hash) return;
+        _lastContentHash = hash;
         Rebuild();
     }
 
