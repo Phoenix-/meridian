@@ -33,10 +33,6 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
     public Task<List<CalendarInfo>> GetCalendarsAsync(AccountId id, CancellationToken ct = default) =>
         new GoogleApiClient(id).GetCalendarsAsync(ct);
 
-    public Task<Dictionary<string, DateTime>> GetTaskReminderTimesAsync(
-        AccountId id, DateTime from, DateTime to, CancellationToken ct = default) =>
-        new GoogleApiClient(id).GetTaskReminderTimesAsync(from, to, ct);
-
     public Task<List<TaskItem>> GetTasksAsync(AccountId id, CancellationToken ct = default) =>
         new GoogleApiClient(id).GetTasksAsync(ct);
 }

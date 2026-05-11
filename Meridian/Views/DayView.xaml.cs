@@ -197,8 +197,8 @@ public sealed partial class DayView : Page, ICalendarView
             AllDayGrid.Children.Add(chip);
         }
 
-        // Tasks with due date but no reminder
-        foreach (var t in _lastSnapshot!.Tasks.Where(t => t.Due.HasValue && !t.ReminderTime.HasValue && t.Due.Value == DateOnly.FromDateTime(_date.Date)))
+        // Tasks with due date — show as all-day chips
+        foreach (var t in _lastSnapshot!.Tasks.Where(t => t.Due.HasValue && t.Due.Value == DateOnly.FromDateTime(_date.Date)))
         {
             var chip = new MonthEventChip();
             chip.Apply(new EventChipData("☑ " + t.Title, TaskColor, null, null, true));
@@ -304,21 +304,6 @@ public sealed partial class DayView : Page, ICalendarView
             .Where(e => !e.IsAllDay && e.Start.Date == _date.Date)
             .ToList();
 
-        var taskEvents = _lastSnapshot.Tasks
-            .Where(t => t.ReminderTime.HasValue && t.ReminderTime.Value.Date == _date.Date)
-            .Select(t => new CalendarEvent
-            {
-                Id = t.Id,
-                Title = "☑ " + t.Title,
-                Start = t.ReminderTime!.Value,
-                End = t.ReminderTime.Value.AddMinutes(30),
-                IsAllDay = false,
-                AccountEmail = t.AccountEmail,
-            })
-            .ToList();
-
-        var allEvents = dayEvents.Concat(taskEvents).ToList();
-
         // Now-line: bright base goes below event blocks; a faint overlay is added on top
         // after the blocks so it remains visible (faintly) across them without obscuring text.
         _nowLine = null;
@@ -370,12 +355,11 @@ public sealed partial class DayView : Page, ICalendarView
             {
                 // Build event blocks once we know the real column width
                 blocksBuilt = true;
-                var layouts = WeekViewLayout.LayoutDay(allEvents, colWidth);
+                var layouts = WeekViewLayout.LayoutDay(dayEvents, colWidth);
                 foreach (var layout in layouts)
                 {
-                    bool isTask = taskEvents.Any(t => t.Id == layout.Event.Id);
-                    var color = isTask ? TaskColor : EventColorPicker.Pick(layout.Event, accountIndex);
-                    var textColor = isTask ? null : EventColorPicker.PickText(layout.Event);
+                    var color = EventColorPicker.Pick(layout.Event, accountIndex);
+                    var textColor = EventColorPicker.PickText(layout.Event);
                     var block = new WeekEventBlock();
                     block.Apply(layout.Event.Title, layout.Event.Start, layout.Event.End, color, textColor, layout.Height);
                     block.Width  = Math.Max(layout.Width, 20);
@@ -408,7 +392,7 @@ public sealed partial class DayView : Page, ICalendarView
             else
             {
                 // Reposition existing blocks on resize
-                var newLayouts = WeekViewLayout.LayoutDay(allEvents, colWidth);
+                var newLayouts = WeekViewLayout.LayoutDay(dayEvents, colWidth);
                 for (int j = 0; j < newLayouts.Count && j < _eventBlocks.Count; j++)
                 {
                     var (block, _) = _eventBlocks[j];

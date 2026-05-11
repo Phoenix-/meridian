@@ -103,51 +103,6 @@ public sealed class GoogleApiClient(AccountId id)
 
     private static readonly HttpClient _http = new();
 
-    public async Task<List<CalendarEvent>> GetEventsAsync(
-        string calendarId, DateTime from, DateTime to, CancellationToken ct = default)
-    {
-        var token = await GoogleOAuthClient.GetAccessTokenAsync(id, ct);
-        var events = new List<CalendarEvent>();
-        string? pageToken = null;
-
-        do
-        {
-            var url = $"{CalendarBase}/calendars/{Uri.EscapeDataString(calendarId)}/events" +
-                      $"?singleEvents=true" +
-                      $"&orderBy=startTime" +
-                      $"&timeMin={Uri.EscapeDataString(from.ToUniversalTime().ToString("o"))}" +
-                      $"&timeMax={Uri.EscapeDataString(to.ToUniversalTime().ToString("o"))}" +
-                      (pageToken is null ? "" : $"&pageToken={Uri.EscapeDataString(pageToken)}");
-
-            var list = await GetEventListAsync(url, token, ct);
-
-            foreach (var item in list?.Items ?? [])
-            {
-                var start = item.Start?.DateTime?.LocalDateTime
-                            ?? (item.Start?.Date is { } sd ? DateTime.Parse(sd) : DateTime.Today);
-                var end   = item.End?.DateTime?.LocalDateTime
-                            ?? (item.End?.Date is { } ed ? DateTime.Parse(ed) : DateTime.Today);
-
-                events.Add(new CalendarEvent
-                {
-                    Id          = item.Id ?? "",
-                    Title       = item.Summary ?? "(без названия)",
-                    Description = item.Description,
-                    Start       = start,
-                    End         = end,
-                    IsAllDay    = item.Start?.DateTime is null,
-                    Color       = item.ColorId,
-                    AccountEmail = id.Email,
-                });
-            }
-
-            pageToken = list?.NextPageToken;
-        }
-        while (pageToken is not null);
-
-        return events;
-    }
-
     // Full sync for a calendar window. Returns all events plus a nextSyncToken
     // bound to this exact (calendarId, timeMin, timeMax, singleEvents) tuple.
     public async Task<EventSyncResult> InitialSyncEventsAsync(
@@ -273,22 +228,6 @@ public sealed class GoogleApiClient(AccountId id)
         return result;
     }
 
-    // Returns taskId -> reminderDateTime from the special @tasks calendar.
-    public async Task<Dictionary<string, DateTime>> GetTaskReminderTimesAsync(
-        DateTime from, DateTime to, CancellationToken ct = default)
-    {
-        var result = new Dictionary<string, DateTime>();
-        try
-        {
-            var items = await GetEventsAsync("@tasks", from, to, ct);
-            foreach (var e in items)
-                if (!e.IsAllDay)
-                    result[e.Id] = e.Start;
-        }
-        catch { }
-        return result;
-    }
-
     public async Task<List<TaskItem>> GetTasksAsync(CancellationToken ct = default)
     {
         var token = await GoogleOAuthClient.GetAccessTokenAsync(id, ct);
@@ -346,9 +285,6 @@ public sealed class GoogleApiClient(AccountId id)
 
         return allTasks;
     }
-
-    private static async Task<EventList?> GetEventListAsync(string url, string token, CancellationToken ct)
-        => await SendGetAsync(url, token, GoogleApiJsonContext.Default.EventList, ct);
 
     private static async Task<TaskListList?> GetTaskListListAsync(string url, string token, CancellationToken ct)
         => await SendGetAsync(url, token, GoogleApiJsonContext.Default.TaskListList, ct);

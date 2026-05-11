@@ -38,7 +38,6 @@ public sealed record CalendarSnapshot(
             hc.Add(t.Id);
             hc.Add(t.Title);
             hc.Add(t.Due);
-            hc.Add(t.ReminderTime);
             hc.Add(t.Completed);
             hc.Add(t.AccountEmail);
         }
@@ -48,7 +47,6 @@ public sealed record CalendarSnapshot(
 
     private static bool TaskOverlaps(TaskItem t, DateTime from, DateTime to)
     {
-        if (t.ReminderTime is { } r) return r >= from && r < to;
         if (t.Due is { } d)
         {
             var dt = d.ToDateTime(TimeOnly.MinValue);
