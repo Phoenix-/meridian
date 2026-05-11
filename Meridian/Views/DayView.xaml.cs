@@ -30,9 +30,47 @@ public sealed partial class DayView : Page, ICalendarView
     private List<(WeekEventBlock Block, EventLayout Layout)> _eventBlocks = [];
     private SizeChangedEventHandler? _columnSizeChanged;
 
+    private Line? _nowLine;
+    private Ellipse? _nowDot;
+    private DateTime _nowLineDate;
+    private DispatcherTimer? _nowTimer;
+
     public DayView()
     {
         InitializeComponent();
+        Loaded += (_, _) => StartNowTimer();
+        Unloaded += (_, _) => StopNowTimer();
+    }
+
+    private void StartNowTimer()
+    {
+        if (_nowTimer != null) return;
+        _nowTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _nowTimer.Tick += (_, _) => UpdateNowMarker();
+        _nowTimer.Start();
+    }
+
+    private void StopNowTimer()
+    {
+        _nowTimer?.Stop();
+        _nowTimer = null;
+    }
+
+    private void UpdateNowMarker()
+    {
+        // If the day under the cursor changed since the line was placed,
+        // do a full rebuild so the marker moves to the right column (or disappears).
+        if (_nowLineDate != DateTime.Today)
+        {
+            Rebuild();
+            return;
+        }
+        if (_nowLine == null) return;
+        double y = WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay);
+        _nowLine.Y1 = y;
+        _nowLine.Y2 = y;
+        if (_nowDot != null)
+            _nowDot.Margin = new Thickness(-5, y - 5, 0, 0);
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -270,6 +308,9 @@ public sealed partial class DayView : Page, ICalendarView
         var allEvents = dayEvents.Concat(taskEvents).ToList();
 
         // Now-line (position only, no dot yet — dot goes in DayColumnWrapper after ApplyWidth)
+        _nowLine = null;
+        _nowDot = null;
+        _nowLineDate = DateTime.Today;
         Line? nowLine = null;
         if (_date.Date == DateTime.Today)
         {
@@ -292,6 +333,9 @@ public sealed partial class DayView : Page, ICalendarView
                 Margin = new Thickness(-5, nowY - 5, 0, 0),
             };
             DayColumnWrapper.Children.Add(dot);
+
+            _nowLine = nowLine;
+            _nowDot = dot;
         }
 
         // Clip + resize handler — unsubscribe previous before adding new
