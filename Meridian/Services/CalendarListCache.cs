@@ -17,6 +17,10 @@ public sealed class CalendarListCache
     private readonly Dictionary<AccountId, List<CalendarInfo>> _byAccount = [];
     private readonly HashSet<AccountId> _hydrated = [];
 
+    // Bumped on InvalidateAll. In-flight RefreshAllAsync checks this and bails
+    // out before mutating the cache or writing to disk if invalidated mid-flight.
+    private int _generation;
+
     public CalendarListCache(AccountManager accounts, ProviderRegistry providers, ICalendarListStore store)
     {
         _accounts = accounts;
@@ -42,6 +46,7 @@ public sealed class CalendarListCache
 
     public async Task RefreshAllAsync()
     {
+        var startGen = _generation;
         var ids = _accounts.Ids.ToList();
         foreach (var id in ids) HydrateFromDisk(id);
 
@@ -52,6 +57,9 @@ public sealed class CalendarListCache
         });
 
         var results = await Task.WhenAll(fetches);
+
+        if (startGen != _generation) return;
+
         bool changed = false;
 
         foreach (var (id, list) in results)
@@ -71,6 +79,7 @@ public sealed class CalendarListCache
 
     public void InvalidateAll()
     {
+        _generation++;
         foreach (var account in _byAccount.Keys.ToList())
             _store.Delete(account);
         _byAccount.Clear();

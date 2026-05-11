@@ -35,6 +35,12 @@ public sealed class CalendarCache
 
     private readonly Dictionary<(AccountId Account, string CalId, int Year), YearStream> _streams = [];
 
+    // Bumped on InvalidateAll. In-flight syncs started before the bump check
+    // their captured generation against this and bail out before mutating state
+    // or writing to disk — otherwise they'd silently restore the just-cleared
+    // cache (e.g. after removing an account).
+    private int _generation;
+
     private int _activeFetches;
 
     public CalendarCache(AccountManager accounts, ProviderRegistry providers, IEventStore store, CalendarListCache calendars)
@@ -91,6 +97,7 @@ public sealed class CalendarCache
     /// an account. Next Request() rebuilds from scratch with initial syncs.
     public void InvalidateAll()
     {
+        _generation++;
         foreach (var ((acc, cal, year), _) in _streams)
             _store.Delete(acc, cal, year);
         _streams.Clear();
@@ -144,10 +151,11 @@ public sealed class CalendarCache
             return;
         }
 
+        var startGen = _generation;
         stream.State = YearStreamState.Loading;
         _activeFetches++;
         FetchingChanged?.Invoke();
-        stream.LoadingTask = DoSync(account, cal, year, stream);
+        stream.LoadingTask = DoSync(account, cal, year, stream, startGen);
         try { await stream.LoadingTask; }
         catch { /* state already set to Stale by DoSync */ }
         finally
@@ -157,10 +165,11 @@ public sealed class CalendarCache
             FetchingChanged?.Invoke();
         }
 
-        DataRefreshed?.Invoke([year]);
+        if (startGen == _generation)
+            DataRefreshed?.Invoke([year]);
     }
 
-    private async Task DoSync(AccountId account, CalendarInfo cal, int year, YearStream stream)
+    private async Task DoSync(AccountId account, CalendarInfo cal, int year, YearStream stream, int startGen)
     {
         var provider = _providers.Get(account);
         var windowStart = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -176,14 +185,18 @@ public sealed class CalendarCache
                 if (result.SyncTokenExpired)
                 {
                     result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd);
+                    if (startGen != _generation) return;
                     stream.Events.Clear();
                 }
             }
             else
             {
                 result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd);
+                if (startGen != _generation) return;
                 stream.Events.Clear();
             }
+
+            if (startGen != _generation) return;
 
             foreach (var e in result.Upserts)
             {

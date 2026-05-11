@@ -21,6 +21,10 @@ public sealed class TaskCache
     private Task? _loadingTask;
     private int _activeFetches;
 
+    // Bumped on InvalidateAll. In-flight DoFetch checks this and bails out
+    // before mutating the cache or writing to disk if it was invalidated mid-flight.
+    private int _generation;
+
     public TaskCache(AccountManager accounts, ProviderRegistry providers, ITaskStore store)
     {
         _accounts = accounts;
@@ -41,6 +45,7 @@ public sealed class TaskCache
 
     public void InvalidateAll()
     {
+        _generation++;
         _tasksByAccount.Clear();
         _loaded = false;
     }
@@ -63,7 +68,8 @@ public sealed class TaskCache
     private async Task FetchAsync()
     {
         if (_loadingTask != null) { await _loadingTask; return; }
-        _loadingTask = DoFetch();
+        var startGen = _generation;
+        _loadingTask = DoFetch(startGen);
         _activeFetches++;
         FetchingChanged?.Invoke();
         try { await _loadingTask; }
@@ -74,10 +80,11 @@ public sealed class TaskCache
             _activeFetches--;
             FetchingChanged?.Invoke();
         }
-        DataRefreshed?.Invoke();
+        if (startGen == _generation)
+            DataRefreshed?.Invoke();
     }
 
-    private async Task DoFetch()
+    private async Task DoFetch(int startGen)
     {
         var ids = _accounts.Ids.ToList();
         var taskFetches = ids.Select(async id => (id, tasks: await _providers.Get(id).GetTasksAsync(id)));
@@ -90,6 +97,8 @@ public sealed class TaskCache
         var reminderFetches = ids.Select(id => _providers.Get(id).GetTaskReminderTimesAsync(id, from, to));
         var reminderMaps = await Task.WhenAll(reminderFetches);
         var allReminders = reminderMaps.SelectMany(d => d).ToDictionary(kv => kv.Key, kv => kv.Value);
+
+        if (startGen != _generation) return;
 
         _tasksByAccount.Clear();
         foreach (var (id, tasks) in taskResults)
