@@ -18,6 +18,11 @@ public sealed partial class WeekView : Page, ICalendarView
     private DateTime _weekStart;
     private CalendarSnapshot? _lastSnapshot;
 
+    private Line? _nowLine;
+    private Ellipse? _nowDot;
+    private DateTime _nowLineDate;
+    private DispatcherTimer? _nowTimer;
+
     // Accent colors for events per account (cycles through list)
     private static readonly Color[] EventColors =
     [
@@ -33,6 +38,38 @@ public sealed partial class WeekView : Page, ICalendarView
     public WeekView()
     {
         InitializeComponent();
+        Loaded += (_, _) => StartNowTimer();
+        Unloaded += (_, _) => StopNowTimer();
+    }
+
+    private void StartNowTimer()
+    {
+        if (_nowTimer != null) return;
+        _nowTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _nowTimer.Tick += (_, _) => UpdateNowMarker();
+        _nowTimer.Start();
+    }
+
+    private void StopNowTimer()
+    {
+        _nowTimer?.Stop();
+        _nowTimer = null;
+    }
+
+    private void UpdateNowMarker()
+    {
+        // Day rolled over (or no marker yet but today is now in the visible week) → full rebuild.
+        if (_nowLineDate != DateTime.Today)
+        {
+            Rebuild();
+            return;
+        }
+        if (_nowLine == null) return;
+        double y = WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay);
+        _nowLine.Y1 = y;
+        _nowLine.Y2 = y;
+        if (_nowDot != null)
+            _nowDot.Margin = new Thickness(-5, y - 5, 0, 0);
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
@@ -252,6 +289,11 @@ public sealed partial class WeekView : Page, ICalendarView
         DayColumnsGrid.Children.Clear();
         DayColumnsGrid.ColumnDefinitions.Clear();
 
+        // Reset now-marker refs; they'll be set again below if today is in this week.
+        _nowLine = null;
+        _nowDot = null;
+        _nowLineDate = DateTime.Today;
+
         double totalHeight = 24 * WeekViewLayout.HourHeight;
         TimeGutter.Height = totalHeight;
 
@@ -368,6 +410,10 @@ public sealed partial class WeekView : Page, ICalendarView
                     Margin = new Thickness(-5, nowY2 - 5, 0, 0),
                 };
                 wrapper.Children.Add(dot);
+
+                _nowLine = nowLine;
+                _nowDot = dot;
+                _nowLineDate = DateTime.Today;
             }
 
             // Clip canvas to column bounds + reposition event blocks on resize
