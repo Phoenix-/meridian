@@ -31,6 +31,7 @@ public sealed partial class DayView : Page, ICalendarView
     private SizeChangedEventHandler? _columnSizeChanged;
 
     private Line? _nowLine;
+    private Line? _nowLineOverlay;
     private Ellipse? _nowDot;
     private DateTime _nowLineDate;
     private DispatcherTimer? _nowTimer;
@@ -69,6 +70,11 @@ public sealed partial class DayView : Page, ICalendarView
         double y = WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay);
         _nowLine.Y1 = y;
         _nowLine.Y2 = y;
+        if (_nowLineOverlay != null)
+        {
+            _nowLineOverlay.Y1 = y;
+            _nowLineOverlay.Y2 = y;
+        }
         if (_nowDot != null)
             _nowDot.Margin = new Thickness(-5, y - 5, 0, 0);
     }
@@ -307,8 +313,10 @@ public sealed partial class DayView : Page, ICalendarView
 
         var allEvents = dayEvents.Concat(taskEvents).ToList();
 
-        // Now-line (position only, no dot yet — dot goes in DayColumnWrapper after ApplyWidth)
+        // Now-line: bright base goes below event blocks; a faint overlay is added on top
+        // after the blocks so it remains visible (faintly) across them without obscuring text.
         _nowLine = null;
+        _nowLineOverlay = null;
         _nowDot = null;
         _nowLineDate = DateTime.Today;
         Line? nowLine = null;
@@ -368,12 +376,26 @@ public sealed partial class DayView : Page, ICalendarView
                     Canvas.SetTop(block, layout.Top);
                     Canvas.SetLeft(block, layout.Left + 1);
                     Canvas.SetZIndex(block, layout.ZIndex);
-                    // Insert before now-line so it renders beneath
-                    if (nowLine != null)
-                        DayCanvas.Children.Insert(DayCanvas.Children.IndexOf(nowLine), block);
-                    else
-                        DayCanvas.Children.Add(block);
+                    // Blocks go on top of the bright now-line; a faint overlay is added afterwards.
+                    DayCanvas.Children.Add(block);
                     _eventBlocks.Add((block, layout));
+                }
+
+                // Faint overlay sits above event blocks so the line stays visible across them
+                // without making event text unreadable.
+                if (nowLine != null)
+                {
+                    double y = nowLine.Y1;
+                    var overlay = new Line
+                    {
+                        X1 = 0, X2 = 2000,
+                        Y1 = y, Y2 = y,
+                        StrokeThickness = 2,
+                        Stroke = new SolidColorBrush(Color.FromArgb(80, 234, 67, 53)),
+                        IsHitTestVisible = false,
+                    };
+                    DayCanvas.Children.Add(overlay);
+                    _nowLineOverlay = overlay;
                 }
             }
             else
