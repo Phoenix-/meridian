@@ -1,0 +1,87 @@
+using Meridian.Auth;
+using Meridian.Models;
+
+namespace Meridian.Services;
+
+// Keeps the per-account list of calendars in memory, backed by disk for fast
+// startup. The list is refreshed from the server on demand (startup and
+// account changes) — not on the 60s timer, since calendars change rarely.
+public sealed class CalendarListCache
+{
+    public event Action? DataRefreshed;
+
+    private readonly AccountManager _accounts;
+    private readonly ProviderRegistry _providers;
+    private readonly ICalendarListStore _store;
+
+    private readonly Dictionary<AccountId, List<CalendarInfo>> _byAccount = [];
+    private readonly HashSet<AccountId> _hydrated = [];
+
+    public CalendarListCache(AccountManager accounts, ProviderRegistry providers, ICalendarListStore store)
+    {
+        _accounts = accounts;
+        _providers = providers;
+        _store = store;
+
+        // Refresh whenever an account appears so the cache catches up after
+        // LoadSavedAccountsAsync finishes (which happens after construction).
+        _accounts.Accounts.CollectionChanged += (_, _) => RefreshAll();
+    }
+
+    /// Returns the cached list for an account. Empty if nothing is known yet —
+    /// caller should treat that as "no calendars to sync until RefreshAll completes".
+    public IReadOnlyList<CalendarInfo> GetFor(AccountId account)
+    {
+        HydrateFromDisk(account);
+        return _byAccount.TryGetValue(account, out var list) ? list : [];
+    }
+
+    /// Fire-and-forget refresh of all accounts' calendar lists. On success,
+    /// raises DataRefreshed once at the end.
+    public void RefreshAll() => _ = RefreshAllAsync();
+
+    public async Task RefreshAllAsync()
+    {
+        var ids = _accounts.Ids.ToList();
+        foreach (var id in ids) HydrateFromDisk(id);
+
+        var fetches = ids.Select(async id =>
+        {
+            try { return (id, list: await _providers.Get(id).GetCalendarsAsync(id)); }
+            catch { return (id, list: (List<CalendarInfo>?)null); }
+        });
+
+        var results = await Task.WhenAll(fetches);
+        bool changed = false;
+
+        foreach (var (id, list) in results)
+        {
+            if (list is null) continue;
+            _byAccount[id] = list;
+            _store.Save(new CalendarListData
+            {
+                AccountId = id.ToString(),
+                Calendars = list,
+            });
+            changed = true;
+        }
+
+        if (changed) DataRefreshed?.Invoke();
+    }
+
+    public void InvalidateAll()
+    {
+        foreach (var account in _byAccount.Keys.ToList())
+            _store.Delete(account);
+        _byAccount.Clear();
+        _hydrated.Clear();
+    }
+
+    private void HydrateFromDisk(AccountId account)
+    {
+        if (!_hydrated.Add(account)) return;
+        var data = _store.Load(account);
+        if (data != null)
+            _byAccount[account] = data.Calendars;
+    }
+}
