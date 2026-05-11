@@ -35,6 +35,7 @@ public sealed partial class MainWindow : Window
 
         RestoreWindowState();
         AppWindow.Closing += (_, _) => SaveWindowState();
+        Closed += OnWindowClosed;
 
         _accountManager = new AccountManager(providers);
         ViewModel = new MainViewModel(_accountManager, providers, DispatcherQueue);
@@ -297,6 +298,8 @@ public sealed partial class MainWindow : Window
     }
 
     private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.RefreshFromServer();
+
+    private void OnWindowClosed(object sender, WindowEventArgs args) => ViewModel.Dispose();
 
     private async void OnAddAccountClick(object sender, RoutedEventArgs e)
     {
