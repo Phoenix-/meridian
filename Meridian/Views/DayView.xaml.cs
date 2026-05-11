@@ -15,6 +15,7 @@ public sealed partial class DayView : Page, ICalendarView
     private MainViewModel? _vm;
     private DateTime _date;
     private CalendarSnapshot? _lastSnapshot;
+    private int? _lastContentHash;
 
     private static readonly Color[] EventColors =
     [
@@ -102,13 +103,17 @@ public sealed partial class DayView : Page, ICalendarView
 
     public string GetLabel() => _date.ToString("d MMMM yyyy");
 
-    public void NavigatePrevious() { _date = _date.AddDays(-1); }
-    public void NavigateNext()     { _date = _date.AddDays(1); }
-    public void NavigateToToday()  { _date = DateTime.Today; }
+    public void NavigatePrevious() { _date = _date.AddDays(-1); _lastContentHash = null; }
+    public void NavigateNext()     { _date = _date.AddDays(1);  _lastContentHash = null; }
+    public void NavigateToToday()  { _date = DateTime.Today;    _lastContentHash = null; }
 
     public void ApplySnapshot(CalendarSnapshot snapshot)
     {
         _lastSnapshot = snapshot;
+        var (from, to) = GetRange();
+        int hash = snapshot.ContentHash(from, to);
+        if (_lastContentHash == hash) return;
+        _lastContentHash = hash;
         Rebuild();
     }
 
