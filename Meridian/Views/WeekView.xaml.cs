@@ -19,6 +19,7 @@ public sealed partial class WeekView : Page, ICalendarView
     private CalendarSnapshot? _lastSnapshot;
 
     private Line? _nowLine;
+    private Line? _nowLineOverlay;
     private Ellipse? _nowDot;
     private DateTime _nowLineDate;
     private DispatcherTimer? _nowTimer;
@@ -68,6 +69,11 @@ public sealed partial class WeekView : Page, ICalendarView
         double y = WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay);
         _nowLine.Y1 = y;
         _nowLine.Y2 = y;
+        if (_nowLineOverlay != null)
+        {
+            _nowLineOverlay.Y1 = y;
+            _nowLineOverlay.Y2 = y;
+        }
         if (_nowDot != null)
             _nowDot.Margin = new Thickness(-5, y - 5, 0, 0);
     }
@@ -291,6 +297,7 @@ public sealed partial class WeekView : Page, ICalendarView
 
         // Reset now-marker refs; they'll be set again below if today is in this week.
         _nowLine = null;
+        _nowLineOverlay = null;
         _nowDot = null;
         _nowLineDate = DateTime.Today;
 
@@ -355,6 +362,29 @@ public sealed partial class WeekView : Page, ICalendarView
                 dayCanvas.Children.Add(highlight);
             }
 
+            // Bright now-line goes under event blocks (added before them); a faint overlay
+            // is appended after blocks below so the line shows faintly across them.
+            if (day.Date == DateTime.Today)
+            {
+                double nowY = WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay);
+                var nowLine = new Line { X1 = 0, X2 = 2000, Y1 = nowY, Y2 = nowY, StrokeThickness = 2, Stroke = new SolidColorBrush(Color.FromArgb(255, 234, 67, 53)) };
+                dayCanvas.Children.Add(nowLine);
+
+                var dot = new Ellipse
+                {
+                    Width = 10, Height = 10,
+                    Fill = new SolidColorBrush(Color.FromArgb(255, 234, 67, 53)),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(-5, nowY - 5, 0, 0),
+                };
+                wrapper.Children.Add(dot);
+
+                _nowLine = nowLine;
+                _nowDot = dot;
+                _nowLineDate = DateTime.Today;
+            }
+
             // Regular timed events
             var dayEvents = _lastSnapshot!.Events.Where(e => !e.IsAllDay && e.Start.Date == day.Date).ToList();
 
@@ -394,26 +424,21 @@ public sealed partial class WeekView : Page, ICalendarView
             var colData = new DayColumnData(allDayEvents, eventBlocks, []);
             _dayColumns.Add(colData);
 
-            // Time now marker: line in clipped canvas, dot in wrapper (unclipped) centered on left edge
-            if (day.Date == DateTime.Today)
+            // Faint now-line overlay sits above event blocks so the marker stays visible
+            // across them without obscuring the event text.
+            if (day.Date == DateTime.Today && _nowLine != null)
             {
-                double nowY2 = WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay);
-                var nowLine = new Line { X1 = 0, X2 = 2000, Y1 = nowY2, Y2 = nowY2, StrokeThickness = 2, Stroke = new SolidColorBrush(Color.FromArgb(255, 234, 67, 53)) };
-                dayCanvas.Children.Add(nowLine);
-
-                var dot = new Ellipse
+                double y = _nowLine.Y1;
+                var overlay = new Line
                 {
-                    Width = 10, Height = 10,
-                    Fill = new SolidColorBrush(Color.FromArgb(255, 234, 67, 53)),
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(-5, nowY2 - 5, 0, 0),
+                    X1 = 0, X2 = 2000,
+                    Y1 = y, Y2 = y,
+                    StrokeThickness = 2,
+                    Stroke = new SolidColorBrush(Color.FromArgb(80, 234, 67, 53)),
+                    IsHitTestVisible = false,
                 };
-                wrapper.Children.Add(dot);
-
-                _nowLine = nowLine;
-                _nowDot = dot;
-                _nowLineDate = DateTime.Today;
+                dayCanvas.Children.Add(overlay);
+                _nowLineOverlay = overlay;
             }
 
             // Clip canvas to column bounds + reposition event blocks on resize
