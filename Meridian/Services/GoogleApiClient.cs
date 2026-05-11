@@ -11,11 +11,13 @@ internal class EventList
 {
     [JsonPropertyName("items")]         public List<EventDto>? Items { get; set; }
     [JsonPropertyName("nextPageToken")] public string? NextPageToken { get; set; }
+    [JsonPropertyName("nextSyncToken")] public string? NextSyncToken { get; set; }
 }
 
 internal class EventDto
 {
     [JsonPropertyName("id")]          public string? Id { get; set; }
+    [JsonPropertyName("status")]      public string? Status { get; set; }
     [JsonPropertyName("summary")]     public string? Summary { get; set; }
     [JsonPropertyName("description")] public string? Description { get; set; }
     [JsonPropertyName("colorId")]     public string? ColorId { get; set; }
@@ -62,6 +64,17 @@ internal class TaskDto
 internal partial class GoogleApiJsonContext : JsonSerializerContext { }
 
 // ── Client ─────────────────────────────────────────────────────────────────────
+
+// Result of a sync (initial or incremental) for a single calendar stream.
+// Upserts are events to insert/replace by Id. CancelledIds are tombstones to
+// remove from the local cache. NextSyncToken is what to persist for the next
+// incremental call. SyncTokenExpired = true means caller must perform initial
+// sync; in that case the other fields are empty.
+public readonly record struct EventSyncResult(
+    List<CalendarEvent> Upserts,
+    List<string> CancelledIds,
+    string? NextSyncToken,
+    bool SyncTokenExpired);
 
 public sealed class GoogleApiClient(AccountId id)
 {
@@ -113,6 +126,90 @@ public sealed class GoogleApiClient(AccountId id)
         while (pageToken is not null);
 
         return events;
+    }
+
+    // Full sync for a calendar window. Returns all events plus a nextSyncToken
+    // bound to this exact (calendarId, timeMin, timeMax, singleEvents) tuple.
+    public async Task<EventSyncResult> InitialSyncEventsAsync(
+        string calendarId, DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var baseUrl = $"{CalendarBase}/calendars/{Uri.EscapeDataString(calendarId)}/events" +
+                      $"?singleEvents=true" +
+                      $"&timeMin={Uri.EscapeDataString(from.ToUniversalTime().ToString("o"))}" +
+                      $"&timeMax={Uri.EscapeDataString(to.ToUniversalTime().ToString("o"))}";
+        // orderBy=startTime is incompatible with sync tokens, so we omit it and
+        // let the caller sort. Same query shape will be used for incremental.
+        var (upserts, cancelled, nextSync, expired) = await PageSyncAsync(baseUrl, ct);
+        return new EventSyncResult(upserts, cancelled, nextSync, expired);
+    }
+
+    // Incremental sync using a previously-stored token. If Google returns 410
+    // Gone the token is too old; caller must re-run InitialSyncEventsAsync.
+    public async Task<EventSyncResult> IncrementalSyncEventsAsync(
+        string calendarId, string syncToken, CancellationToken ct = default)
+    {
+        var baseUrl = $"{CalendarBase}/calendars/{Uri.EscapeDataString(calendarId)}/events" +
+                      $"?syncToken={Uri.EscapeDataString(syncToken)}";
+        return await PageSyncAsync(baseUrl, ct);
+    }
+
+    private async Task<EventSyncResult> PageSyncAsync(string baseUrl, CancellationToken ct)
+    {
+        var token = await GoogleOAuthClient.GetAccessTokenAsync(id, ct);
+        var upserts = new List<CalendarEvent>();
+        var cancelled = new List<string>();
+        string? pageToken = null;
+        string? nextSyncToken = null;
+
+        do
+        {
+            var url = baseUrl + (pageToken is null ? "" : $"&pageToken={Uri.EscapeDataString(pageToken)}");
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Authorization = new("Bearer", token);
+            using var resp = await _http.SendAsync(req, ct);
+
+            if (resp.StatusCode == System.Net.HttpStatusCode.Gone)
+                return new EventSyncResult([], [], null, true);
+
+            resp.EnsureSuccessStatusCode();
+            var list = await resp.Content.ReadFromJsonAsync(GoogleApiJsonContext.Default.EventList, ct);
+
+            foreach (var item in list?.Items ?? [])
+            {
+                if (item.Id is null) continue;
+                if (item.Status == "cancelled")
+                {
+                    cancelled.Add(item.Id);
+                    continue;
+                }
+
+                var start = item.Start?.DateTime?.LocalDateTime
+                            ?? (item.Start?.Date is { } sd ? DateTime.Parse(sd) : DateTime.Today);
+                var end   = item.End?.DateTime?.LocalDateTime
+                            ?? (item.End?.Date is { } ed ? DateTime.Parse(ed) : DateTime.Today);
+
+                upserts.Add(new CalendarEvent
+                {
+                    Id          = item.Id,
+                    Title       = item.Summary ?? "(без названия)",
+                    Description = item.Description,
+                    Start       = start,
+                    End         = end,
+                    IsAllDay    = item.Start?.DateTime is null,
+                    CalendarId  = null,
+                    Color       = item.ColorId,
+                    AccountEmail = id.Email,
+                });
+            }
+
+            pageToken = list?.NextPageToken;
+            // nextSyncToken only appears on the last page.
+            if (pageToken is null) nextSyncToken = list?.NextSyncToken;
+        }
+        while (pageToken is not null);
+
+        return new EventSyncResult(upserts, cancelled, nextSyncToken, false);
     }
 
     // Returns taskId -> reminderDateTime from the special @tasks calendar.
