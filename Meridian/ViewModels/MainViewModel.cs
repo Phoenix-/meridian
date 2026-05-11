@@ -7,11 +7,14 @@ using Microsoft.UI.Dispatching;
 
 namespace Meridian.ViewModels;
 
-public partial class MainViewModel : ObservableObject
+public partial class MainViewModel : ObservableObject, IDisposable
 {
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
+
     private readonly CalendarCache _events;
     private readonly TaskCache _tasks;
     private readonly DispatcherQueue _dispatcher;
+    private readonly CancellationTokenSource _pollCts = new();
 
     private ICalendarView? _activeView;
 
@@ -29,6 +32,30 @@ public partial class MainViewModel : ObservableObject
 
         _events.FetchingChanged += UpdateFetching;
         _tasks.FetchingChanged += UpdateFetching;
+
+        _ = PollLoopAsync(_pollCts.Token);
+    }
+
+    private async Task PollLoopAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(PollInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                // Both caches swallow per-stream errors internally, so a flaky
+                // network just leaves stale data until the next tick.
+                _events.RefreshAll();
+                _tasks.RefreshAll();
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    public void Dispose()
+    {
+        _pollCts.Cancel();
+        _pollCts.Dispose();
     }
 
     // ── Called by MainWindow when the active view changes ─────────────────────
