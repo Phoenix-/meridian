@@ -317,10 +317,15 @@ public sealed partial class MainWindow : Window
 
     private async void OnRemoveAccountClick(object sender, RoutedEventArgs e)
     {
-        if (sender is Button btn && btn.Tag is AccountId id)
+        if (sender is not Button btn || btn.Tag is not AccountId id) return;
+        try
         {
             await _accountManager.RemoveAccountAsync(id);
-            ViewModel.InvalidateAndRefresh();
+            ViewModel.InvalidateAccountAndRefresh(id);
+        }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("Ошибка удаления аккаунта", ex.Message);
         }
     }
 }

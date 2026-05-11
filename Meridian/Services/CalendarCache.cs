@@ -103,6 +103,20 @@ public sealed class CalendarCache
         _streams.Clear();
     }
 
+    /// Drops in-memory and on-disk state for one account only. Other accounts'
+    /// streams stay intact, so the UI keeps showing their events without
+    /// waiting for a full re-sync.
+    public void InvalidateAccount(AccountId account)
+    {
+        _generation++;
+        var toRemove = _streams.Keys.Where(k => k.Account == account).ToList();
+        foreach (var key in toRemove)
+        {
+            _store.Delete(key.Account, key.CalId, key.Year);
+            _streams.Remove(key);
+        }
+    }
+
     // ── Year lifecycle ────────────────────────────────────────────────────────
 
     private void EnsureYear(int year)

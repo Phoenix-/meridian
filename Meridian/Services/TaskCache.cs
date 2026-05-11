@@ -50,6 +50,21 @@ public sealed class TaskCache
         _loaded = false;
     }
 
+    /// Drops in-memory state for one account. The on-disk blob is rewritten
+    /// without that account on the next successful fetch; other accounts' tasks
+    /// remain visible immediately.
+    public void InvalidateAccount(AccountId account)
+    {
+        _generation++;
+        _tasksByAccount.Remove(account.Email);
+        // Persist the trimmed snapshot so a crash before the next fetch doesn't
+        // resurrect the removed account's tasks from disk.
+        _store.Save(new TaskStoreData
+        {
+            TasksByAccount = new Dictionary<string, List<TaskItem>>(_tasksByAccount),
+        });
+    }
+
     private void EnsureLoaded()
     {
         if (_loaded || _loadingTask != null) return;
