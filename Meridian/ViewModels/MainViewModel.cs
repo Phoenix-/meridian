@@ -9,7 +9,8 @@ namespace Meridian.ViewModels;
 
 public partial class MainViewModel : ObservableObject
 {
-    private readonly CalendarCache _cache;
+    private readonly CalendarCache _events;
+    private readonly TaskCache _tasks;
     private readonly DispatcherQueue _dispatcher;
 
     private ICalendarView? _activeView;
@@ -20,13 +21,14 @@ public partial class MainViewModel : ObservableObject
     public MainViewModel(AccountManager accounts, ProviderRegistry providers, DispatcherQueue dispatcher)
     {
         _dispatcher = dispatcher;
+        _events = new CalendarCache(accounts, providers, new JsonEventStore());
+        _tasks  = new TaskCache(accounts, providers, new JsonTaskStore());
 
-        var fetcher = new GoogleCalendarFetcher(accounts, providers);
-        _cache = new CalendarCache();
-        _cache.SetFetcher(fetcher.FetchMonthAsync);
-        _cache.DataRefreshed += OnDataRefreshed;
-        _cache.FetchingCountChanged += count =>
-            _dispatcher.TryEnqueue(() => IsRefreshing = count > 0);
+        _events.DataRefreshed += OnEventsRefreshed;
+        _tasks.DataRefreshed += OnTasksRefreshed;
+
+        _events.FetchingChanged += UpdateFetching;
+        _tasks.FetchingChanged += UpdateFetching;
     }
 
     // ── Called by MainWindow when the active view changes ─────────────────────
@@ -61,38 +63,58 @@ public partial class MainViewModel : ObservableObject
     {
         if (_activeView == null) return;
         var (from, to) = _activeView.GetRange();
-        var snapshot = _cache.Request(from, to);
-        _activeView.ApplySnapshot(snapshot);
+        ApplyCurrent(from, to);
+    }
+
+    /// User-triggered refresh: pulls incremental sync for all loaded years and
+    /// re-fetches tasks. Cheap when nothing changed.
+    public void RefreshFromServer()
+    {
+        _events.RefreshAll();
+        _tasks.RefreshAll();
     }
 
     public void InvalidateAndRefresh()
     {
-        _cache.InvalidateAll();
+        _events.InvalidateAll();
+        _tasks.InvalidateAll();
         Refresh();
     }
 
-    // ── Cache event ───────────────────────────────────────────────────────────
+    // ── Cache events ──────────────────────────────────────────────────────────
 
-    private void OnDataRefreshed(IReadOnlyList<YearMonth> refreshed)
+    private void OnEventsRefreshed(IReadOnlyList<int> refreshedYears)
     {
         _dispatcher.TryEnqueue(() =>
         {
             if (_activeView == null) return;
             var (from, to) = _activeView.GetRange();
 
-            bool relevant = refreshed.Any(ym =>
-            {
-                var ymFrom = ym.FirstDay();
-                var ymTo = ym.FirstDayOfNext();
-                return ymFrom < to && ymTo > from;
-            });
-
+            bool relevant = refreshedYears.Any(y => y >= from.Year && y <= to.AddDays(-1).Year);
             if (!relevant) return;
 
-            var snapshot = _cache.Request(from, to);
-            _activeView.ApplySnapshot(snapshot);
+            ApplyCurrent(from, to);
         });
     }
 
+    private void OnTasksRefreshed()
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (_activeView == null) return;
+            var (from, to) = _activeView.GetRange();
+            ApplyCurrent(from, to);
+        });
+    }
 
+    private void ApplyCurrent(DateTime from, DateTime to)
+    {
+        var events = _events.Request(from, to);
+        var tasks  = _tasks.Request(from, to);
+        var snapshot = new CalendarSnapshot(events, tasks, IsComplete: true);
+        _activeView?.ApplySnapshot(snapshot);
+    }
+
+    private void UpdateFetching() =>
+        _dispatcher.TryEnqueue(() => IsRefreshing = _events.IsFetching || _tasks.IsFetching);
 }

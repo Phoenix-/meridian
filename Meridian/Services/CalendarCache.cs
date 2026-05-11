@@ -1,211 +1,239 @@
+using Meridian.Auth;
 using Meridian.Models;
 
 namespace Meridian.Services;
 
-public enum CacheState { Empty, Loading, Fresh, Stale }
+public enum YearStreamState { Empty, Loading, Fresh, Stale }
 
-internal sealed class CachedMonth
+internal sealed class YearStream
 {
-    public CacheState State { get; set; } = CacheState.Empty;
-    public List<CalendarEvent> Events { get; set; } = [];
-    // Awaitable handle for in-flight fetches so late callers can join rather than re-fetch.
+    public YearStreamState State { get; set; } = YearStreamState.Empty;
+    public string? SyncToken { get; set; }
+    public DateTime WindowStartUtc { get; set; }
+    public DateTime WindowEndUtc { get; set; }
+    // Keyed by event Id; cancelled events are removed.
+    public Dictionary<string, CalendarEvent> Events { get; set; } = [];
     public Task? LoadingTask { get; set; }
 }
 
 public sealed class CalendarCache
 {
-    // Months beyond this distance from the anchor are eligible for eviction.
-    // Raise to retain more history without other changes.
-    public int EvictionRadius { get; set; } = 2;
+    // Years inside [-WindowRadius, +WindowRadius] of the anchor are guaranteed
+    // to be present. Years outside are loaded only when explicitly requested
+    // (i.e. the user navigated into them).
+    public int WindowRadius { get; set; } = 1;
 
-    // Fired on the thread that completed the fetch. Consumers must marshal to UI if needed.
-    public event Action<IReadOnlyList<YearMonth>>? DataRefreshed;
+    public event Action<IReadOnlyList<int>>? DataRefreshed;
+    public event Action? FetchingChanged;
 
-    // Fired when the number of in-flight fetches changes (0 = idle).
-    public event Action<int>? FetchingCountChanged;
+    public bool IsFetching => _activeFetches > 0;
+
+    private readonly AccountManager _accounts;
+    private readonly ProviderRegistry _providers;
+    private readonly IEventStore _store;
+
+    private readonly Dictionary<(AccountId Account, string CalId, int Year), YearStream> _streams = [];
+
     private int _activeFetches;
 
-    private readonly Dictionary<YearMonth, CachedMonth> _months = [];
-    private readonly Dictionary<string, List<TaskItem>> _tasksByAccount = [];
+    public CalendarCache(AccountManager accounts, ProviderRegistry providers, IEventStore store)
+    {
+        _accounts = accounts;
+        _providers = providers;
+        _store = store;
+    }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
-    /// Returns whatever is in the cache right now for [from, to) and kicks off
-    /// background fetches for any missing or stale months in the sliding window.
-    public CalendarSnapshot Request(DateTime from, DateTime to)
+    /// Returns events that fall within [from, to) using whatever is cached now.
+    /// Triggers background sync for years that are missing or stale.
+    public List<CalendarEvent> Request(DateTime from, DateTime to)
     {
-        var anchor = YearMonth.FromDateTime(from);
-        var needed = MonthsForRange(from, to).ToList();
+        var anchorYear = from.Year;
+        var needed = YearsForRange(from, to, anchorYear).ToList();
 
-        bool allReady = needed.All(ym =>
-            _months.TryGetValue(ym, out var e) && e.State is CacheState.Fresh or CacheState.Stale);
+        foreach (var year in needed)
+            EnsureYear(year);
 
-        // Kick off missing months (fire-and-forget; DataRefreshed will notify when done).
-        EnsureWindow(anchor);
-
-        var (events, tasks) = Slice(from, to);
-        bool isComplete = allReady && needed.All(ym =>
-            _months.TryGetValue(ym, out var e) && e.State == CacheState.Fresh);
-
-        string? error = null;
-        foreach (var ym in needed)
-            if (_months.TryGetValue(ym, out var e) && e.State == CacheState.Stale)
-                error ??= $"Данные за {ym} могут быть устаревшими";
-
-        return new CalendarSnapshot(events, tasks, isComplete, error);
+        return Slice(from, to);
     }
 
-    /// Marks all cached months stale so the next Request re-fetches everything.
-    /// Call after adding or removing an account.
+    /// Forces incremental sync of every loaded year. Use for the Refresh button
+    /// and the background timer. Cheap when nothing changed (one HTTP per stream
+    /// returning an empty diff).
+    public void RefreshAll()
+    {
+        // Snapshot keys to avoid mutation during iteration.
+        var keys = _streams.Keys.ToList();
+        foreach (var key in keys)
+        {
+            var stream = _streams[key];
+            if (stream.State is YearStreamState.Loading) continue;
+            _ = SyncStreamAsync(key.Account, key.CalId, key.Year, stream);
+        }
+    }
+
+    /// Drops all in-memory state and on-disk cache. Use after adding or removing
+    /// an account. Next Request() rebuilds from scratch with initial syncs.
     public void InvalidateAll()
     {
-        foreach (var entry in _months.Values)
-            if (entry.State == CacheState.Fresh)
-                entry.State = CacheState.Stale;
-        _tasksByAccount.Clear();
+        foreach (var ((acc, cal, year), _) in _streams)
+            _store.Delete(acc, cal, year);
+        _streams.Clear();
     }
 
-    // ── Internal fetch machinery ──────────────────────────────────────────────
+    // ── Year lifecycle ────────────────────────────────────────────────────────
 
-    private Func<YearMonth, Task<(List<CalendarEvent>, Dictionary<string, List<TaskItem>>)>>? _fetcher;
-
-    /// Wire up the actual Google API fetch. Called once by the owner (MainViewModel).
-    internal void SetFetcher(Func<YearMonth, Task<(List<CalendarEvent>, Dictionary<string, List<TaskItem>>)>> fetcher) =>
-        _fetcher = fetcher;
-
-    private CachedMonth GetOrCreate(YearMonth key)
+    private void EnsureYear(int year)
     {
-        if (!_months.TryGetValue(key, out var entry))
+        foreach (var account in _accounts.Ids)
         {
-            entry = new CachedMonth();
-            var disk = DiskCache.ReadMonth(key.Year, key.Month);
-            if (disk != null)
-            {
-                entry.Events = disk.Events;
-                entry.State = CacheState.Stale; // show immediately, re-fetch in background
-            }
-            _months[key] = entry;
+            var provider = _providers.Get(account);
+            var calId = provider.PrimaryCalendarId;
+            var key = (account, calId, year);
 
-            // Load tasks from disk once on first cold start (any month miss triggers it).
-            if (_tasksByAccount.Count == 0)
+            if (!_streams.TryGetValue(key, out var stream))
             {
-                var diskTasks = DiskCache.ReadTasks();
-                if (diskTasks != null)
-                    foreach (var (email, tasks) in diskTasks.TasksByAccount)
-                        _tasksByAccount[email] = tasks;
+                stream = LoadFromDisk(account, calId, year);
+                _streams[key] = stream;
             }
+
+            if (stream.State is YearStreamState.Empty or YearStreamState.Stale)
+                _ = SyncStreamAsync(account, calId, year, stream);
         }
-        return entry;
     }
 
-    /// Fetches a single month and raises DataRefreshed when done.
-    private async Task FetchMonthAsync(YearMonth ym)
+    private YearStream LoadFromDisk(AccountId account, string calId, int year)
     {
-        var entry = GetOrCreate(ym);
-        if (entry.State == CacheState.Loading)
+        var stream = new YearStream();
+        var data = _store.Load(account, calId, year);
+        if (data == null) return stream;
+
+        stream.SyncToken = data.SyncToken;
+        stream.WindowStartUtc = data.WindowStartUtc;
+        stream.WindowEndUtc = data.WindowEndUtc;
+        foreach (var e in data.Events)
+            stream.Events[e.Id] = e;
+        // Disk-loaded streams are stale: we want an incremental sync to bring
+        // them up to date before declaring "fresh".
+        stream.State = YearStreamState.Stale;
+        return stream;
+    }
+
+    private async Task SyncStreamAsync(AccountId account, string calId, int year, YearStream stream)
+    {
+        if (stream.State == YearStreamState.Loading)
         {
-            if (entry.LoadingTask != null) await entry.LoadingTask;
+            if (stream.LoadingTask != null) await stream.LoadingTask;
             return;
         }
 
-        entry.State = CacheState.Loading;
-        FetchingCountChanged?.Invoke(++_activeFetches);
-        entry.LoadingTask = DoFetch(ym, entry);
-        try
-        {
-            await entry.LoadingTask;
-        }
-        catch { }
+        stream.State = YearStreamState.Loading;
+        _activeFetches++;
+        FetchingChanged?.Invoke();
+        stream.LoadingTask = DoSync(account, calId, year, stream);
+        try { await stream.LoadingTask; }
+        catch { /* state already set to Stale by DoSync */ }
         finally
         {
-            entry.LoadingTask = null;
-            FetchingCountChanged?.Invoke(--_activeFetches);
+            stream.LoadingTask = null;
+            _activeFetches--;
+            FetchingChanged?.Invoke();
         }
 
-        DataRefreshed?.Invoke([ym]);
+        DataRefreshed?.Invoke([year]);
     }
 
-    private async Task DoFetch(YearMonth ym, CachedMonth entry)
+    private async Task DoSync(AccountId account, string calId, int year, YearStream stream)
     {
+        var provider = _providers.Get(account);
+        var windowStart = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var windowEnd = new DateTime(year + 1, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
         try
         {
-            var (events, tasksByAccount) = await _fetcher!(ym);
-            entry.Events = events;
-            entry.State = CacheState.Fresh;
-            foreach (var (email, tasks) in tasksByAccount)
-                _tasksByAccount[email] = tasks;
+            EventSyncResult result;
 
-            DiskCache.WriteMonth(ym.Year, ym.Month, events);
-            DiskCache.WriteTasks(new Dictionary<string, List<TaskItem>>(_tasksByAccount));
+            if (stream.SyncToken is { } token && stream.WindowStartUtc == windowStart && stream.WindowEndUtc == windowEnd)
+            {
+                result = await provider.IncrementalSyncEventsAsync(account, calId, token);
+                if (result.SyncTokenExpired)
+                {
+                    // Token gone — fall back to initial.
+                    result = await provider.InitialSyncEventsAsync(account, calId, windowStart, windowEnd);
+                    stream.Events.Clear();
+                }
+            }
+            else
+            {
+                result = await provider.InitialSyncEventsAsync(account, calId, windowStart, windowEnd);
+                stream.Events.Clear();
+            }
+
+            foreach (var e in result.Upserts)
+                stream.Events[e.Id] = e;
+            foreach (var id in result.CancelledIds)
+                stream.Events.Remove(id);
+
+            // Only persist the new token; Google omits it on intermediate pages
+            // but always emits it on the last page of a successful sync.
+            if (result.NextSyncToken is not null)
+                stream.SyncToken = result.NextSyncToken;
+            stream.WindowStartUtc = windowStart;
+            stream.WindowEndUtc = windowEnd;
+            stream.State = YearStreamState.Fresh;
+
+            _store.Save(new YearCacheData
+            {
+                AccountId = account.ToString(),
+                CalendarId = calId,
+                Year = year,
+                WindowStartUtc = windowStart,
+                WindowEndUtc = windowEnd,
+                SyncToken = stream.SyncToken,
+                Events = stream.Events.Values.ToList(),
+            });
         }
         catch
         {
-            entry.State = CacheState.Stale;
+            stream.State = YearStreamState.Stale;
             throw;
-        }
-    }
-
-    private void EnsureWindow(YearMonth anchor)
-    {
-        MarkStaleOutside(anchor);
-
-        for (int d = -EvictionRadius; d <= EvictionRadius; d++)
-        {
-            var ym = anchor.Add(d);
-            var entry = GetOrCreate(ym);
-            if (entry.State is CacheState.Empty or CacheState.Stale)
-                _ = FetchMonthAsync(ym);
-        }
-    }
-
-    private void MarkStaleOutside(YearMonth anchor)
-    {
-        foreach (var (ym, entry) in _months)
-        {
-            int dist = Math.Abs(ym.Year * 12 + ym.Month - anchor.Year * 12 - anchor.Month);
-            if (dist > EvictionRadius && entry.State == CacheState.Fresh)
-                entry.State = CacheState.Stale;
         }
     }
 
     // ── Slice ─────────────────────────────────────────────────────────────────
 
-    private (List<CalendarEvent>, List<TaskItem>) Slice(DateTime from, DateTime to)
+    private List<CalendarEvent> Slice(DateTime from, DateTime to)
     {
-        var events = new List<CalendarEvent>();
+        // Year streams overlap on event ids only for events that straddle a
+        // year boundary (returned by both years' initial sync). Dedupe by
+        // (AccountEmail, Id) — same email + id refers to the same event across
+        // streams of one account.
+        var seen = new HashSet<(string?, string)>();
+        var result = new List<CalendarEvent>();
 
-        foreach (var ym in MonthsForRange(from, to))
+        foreach (var stream in _streams.Values)
         {
-            if (!_months.TryGetValue(ym, out var entry) || entry.State == CacheState.Empty)
-                continue;
-            // While loading, show whatever we already have (disk cache or previous fetch).
-            if (entry.State == CacheState.Loading && entry.Events.Count == 0)
-                continue;
-
-            foreach (var e in entry.Events)
-                if (e.Start < to && e.End > from)
-                    events.Add(e);
+            foreach (var e in stream.Events.Values)
+            {
+                if (e.Start >= to || e.End <= from) continue;
+                if (!seen.Add((e.AccountEmail, e.Id))) continue;
+                result.Add(e);
+            }
         }
 
-        events.Sort((a, b) => a.Start.CompareTo(b.Start));
-
-        var dateFrom = DateOnly.FromDateTime(from);
-        var dateTo = DateOnly.FromDateTime(to.AddDays(-1));
-        var tasks = _tasksByAccount.Values
-            .SelectMany(t => t)
-            .Where(t => t.Due == null || (t.Due >= dateFrom && t.Due <= dateTo))
-            .ToList();
-
-        return (events, tasks);
+        result.Sort((a, b) => a.Start.CompareTo(b.Start));
+        return result;
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static IEnumerable<YearMonth> MonthsForRange(DateTime from, DateTime to)
+    private IEnumerable<int> YearsForRange(DateTime from, DateTime to, int anchorYear)
     {
-        var ym = YearMonth.FromDateTime(from);
-        var end = YearMonth.FromDateTime(to.AddDays(-1));
-        for (; ym.CompareTo(end) <= 0; ym = ym.Add(1))
-            yield return ym;
+        var min = Math.Min(from.Year, anchorYear - WindowRadius);
+        // to is exclusive; if it falls exactly on Jan 1, the prior year is the last one needed.
+        var rangeEndYear = to == to.Date && to.Month == 1 && to.Day == 1 ? to.Year - 1 : to.Year;
+        var max = Math.Max(rangeEndYear, anchorYear + WindowRadius);
+        for (int y = min; y <= max; y++) yield return y;
     }
 }

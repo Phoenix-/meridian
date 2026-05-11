@@ -1,4 +1,5 @@
 using Meridian.Models;
+using Meridian.Services;
 
 namespace Meridian.Auth;
 
@@ -19,8 +20,18 @@ public interface ICalendarProvider
 
     // ── Data ──────────────────────────────────────────────────────────────────
 
-    Task<List<CalendarEvent>> GetEventsAsync(
-        AccountId id, DateTime from, DateTime to, CancellationToken ct = default);
+    // Full sync for a window. Returns events + a sync token bound to the window.
+    Task<EventSyncResult> InitialSyncEventsAsync(
+        AccountId id, string calendarId, DateTime from, DateTime to, CancellationToken ct = default);
+
+    // Incremental sync using a previously-stored token. If the token expired
+    // (HTTP 410), result.SyncTokenExpired == true and caller must re-init.
+    Task<EventSyncResult> IncrementalSyncEventsAsync(
+        AccountId id, string calendarId, string syncToken, CancellationToken ct = default);
+
+    // The calendarId to use for the primary calendar of this account. For Google
+    // it's the literal "primary"; placeholder for multi-calendar later.
+    string PrimaryCalendarId { get; }
 
     // taskId -> reminder DateTime; returns empty dict if not supported.
     Task<Dictionary<string, DateTime>> GetTaskReminderTimesAsync(

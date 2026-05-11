@@ -296,7 +296,7 @@ public sealed partial class MainWindow : Window
         DiskCache.WriteWindowState(data);
     }
 
-    private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.InvalidateAndRefresh();
+    private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.RefreshFromServer();
 
     private async void OnAddAccountClick(object sender, RoutedEventArgs e)
     {
