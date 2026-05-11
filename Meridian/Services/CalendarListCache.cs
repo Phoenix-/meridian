@@ -86,6 +86,15 @@ public sealed class CalendarListCache
         _hydrated.Clear();
     }
 
+    /// Drops in-memory and on-disk state for one account only.
+    public void InvalidateAccount(AccountId account)
+    {
+        _generation++;
+        _store.Delete(account);
+        _byAccount.Remove(account);
+        _hydrated.Remove(account);
+    }
+
     private void HydrateFromDisk(AccountId account)
     {
         if (!_hydrated.Add(account)) return;

@@ -114,6 +114,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         Refresh();
     }
 
+    /// Drops cached state for a single account and re-renders. Other accounts'
+    /// data stays in the view without waiting for re-sync.
+    public void InvalidateAccountAndRefresh(AccountId account)
+    {
+        _events.InvalidateAccount(account);
+        _tasks.InvalidateAccount(account);
+        _calendarLists.InvalidateAccount(account);
+        Refresh();
+    }
+
     // ── Cache events ──────────────────────────────────────────────────────────
 
     private void OnEventsRefreshed(IReadOnlyList<int> refreshedYears)
