@@ -105,24 +105,11 @@ public sealed class TaskCache
         var taskFetches = ids.Select(async id => (id, tasks: await _providers.Get(id).GetTasksAsync(id)));
         var taskResults = await Task.WhenAll(taskFetches);
 
-        // Reminder times still come from the @tasks calendar via a long-window
-        // GetTaskReminderTimesAsync. Keep the legacy fetch but with a wide window.
-        var from = DateTime.UtcNow.AddYears(-1);
-        var to = DateTime.UtcNow.AddYears(2);
-        var reminderFetches = ids.Select(id => _providers.Get(id).GetTaskReminderTimesAsync(id, from, to));
-        var reminderMaps = await Task.WhenAll(reminderFetches);
-        var allReminders = reminderMaps.SelectMany(d => d).ToDictionary(kv => kv.Key, kv => kv.Value);
-
         if (startGen != _generation) return;
 
         _tasksByAccount.Clear();
         foreach (var (id, tasks) in taskResults)
-        {
-            foreach (var t in tasks)
-                if (t.Id != null && allReminders.TryGetValue(t.Id, out var rt))
-                    t.ReminderTime = rt;
             _tasksByAccount[id.Email] = tasks;
-        }
         _loaded = true;
 
         _store.Save(new TaskStoreData

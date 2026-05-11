@@ -238,9 +238,9 @@ public sealed partial class WeekView : Page, ICalendarView
                 rowMap[r][c] = (ev.End.Date, c);
         }
 
-        // Tasks with due date but no reminder time — show as all-day chips
+        // Tasks with due date — show as all-day chips
         var tasksByDay = new Dictionary<int, List<TaskItem>>();
-        foreach (var t in _lastSnapshot!.Tasks.Where(t => t.Due.HasValue && !t.ReminderTime.HasValue))
+        foreach (var t in _lastSnapshot!.Tasks.Where(t => t.Due.HasValue))
         {
             int col = DayIndex(t.Due!.Value.ToDateTime(TimeOnly.MinValue));
             if (col < 0 || col > 6) continue;
@@ -393,30 +393,13 @@ public sealed partial class WeekView : Page, ICalendarView
 
             // Regular timed events
             var dayEvents = _lastSnapshot!.Events.Where(e => !e.IsAllDay && e.Start.Date == day.Date).ToList();
-
-            // Tasks with a reminder time on this day — synthesize as CalendarEvent (30 min block)
-            var dayTaskEvents = _lastSnapshot.Tasks
-                .Where(t => t.ReminderTime.HasValue && t.ReminderTime.Value.Date == day.Date)
-                .Select(t => new CalendarEvent
-                {
-                    Id = t.Id,
-                    Title = "☑ " + t.Title,
-                    Start = t.ReminderTime!.Value,
-                    End = t.ReminderTime.Value.AddMinutes(30),
-                    IsAllDay = false,
-                    AccountEmail = t.AccountEmail,
-                })
-                .ToList();
-
-            var allDayEvents = dayEvents.Concat(dayTaskEvents).ToList();
-            var layouts = WeekViewLayout.LayoutDay(allDayEvents, 1000.0); // width corrected in SizeChanged
+            var layouts = WeekViewLayout.LayoutDay(dayEvents, 1000.0); // width corrected in SizeChanged
             var eventBlocks = new List<(WeekEventBlock, double)>();
 
             foreach (var layout in layouts)
             {
-                bool isTask = dayTaskEvents.Any(t => t.Id == layout.Event.Id);
-                var color = isTask ? TaskColor : EventColorPicker.Pick(layout.Event, accountIndex);
-                var textColor = isTask ? null : EventColorPicker.PickText(layout.Event);
+                var color = EventColorPicker.Pick(layout.Event, accountIndex);
+                var textColor = EventColorPicker.PickText(layout.Event);
                 var block = new WeekEventBlock();
                 block.Apply(layout.Event.Title, layout.Event.Start, layout.Event.End, color, textColor, layout.Height);
                 block.Width = Math.Max(layout.Width, 20);
@@ -428,7 +411,7 @@ public sealed partial class WeekView : Page, ICalendarView
                 eventBlocks.Add((block, layout.Left));
             }
 
-            var colData = new DayColumnData(allDayEvents, eventBlocks, []);
+            var colData = new DayColumnData(dayEvents, eventBlocks, []);
             _dayColumns.Add(colData);
 
             // Faint now-line overlay sits above event blocks so the marker stays visible

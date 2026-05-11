@@ -32,9 +32,5 @@ public interface ICalendarProvider
     // All calendars (own + shared + subscribed) visible to this account.
     Task<List<CalendarInfo>> GetCalendarsAsync(AccountId id, CancellationToken ct = default);
 
-    // taskId -> reminder DateTime; returns empty dict if not supported.
-    Task<Dictionary<string, DateTime>> GetTaskReminderTimesAsync(
-        AccountId id, DateTime from, DateTime to, CancellationToken ct = default);
-
     Task<List<TaskItem>> GetTasksAsync(AccountId id, CancellationToken ct = default);
 }
