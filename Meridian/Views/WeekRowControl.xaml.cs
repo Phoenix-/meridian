@@ -12,7 +12,7 @@ public sealed partial class WeekRowControl : UserControl
     private static readonly Color TaskColor = Color.FromArgb(255, 70, 130, 180);
 
     private sealed record SpanSegment(
-        string Title, Color Color,
+        string Title, Color Color, Color? TextColor,
         int ColStart, int ColEnd,   // 0-based Mon..Sun, both inclusive
         bool IsFirst, bool IsLast,
         int Lane);
@@ -57,7 +57,8 @@ public sealed partial class WeekRowControl : UserControl
 
         foreach (var ev in multiDay)
         {
-            var color = GetColor(ev.AccountEmail, eventColors, accountIndex);
+            var color = EventColorPicker.Pick(ev, accountIndex);
+            var textColor = EventColorPicker.PickText(ev);
             var evEnd  = ev.End.Date.AddDays(-1);   // Google End is exclusive
             var start  = ev.Start.Date > weekStart ? ev.Start.Date : weekStart;
             var end    = evEnd < weekEnd ? evEnd : weekEnd;
@@ -84,7 +85,7 @@ public sealed partial class WeekRowControl : UserControl
             for (int c = colStart; c <= colEnd; c++)
                 laneOccupied[assigned][c] = true;
 
-            segments.Add(new SpanSegment(ev.Title, color, colStart, colEnd, isFirst, isLast, assigned));
+            segments.Add(new SpanSegment(ev.Title, color, textColor, colStart, colEnd, isFirst, isLast, assigned));
         }
 
         int laneCount = laneOccupied.Count;
@@ -109,10 +110,11 @@ public sealed partial class WeekRowControl : UserControl
 
         foreach (var ev in singleEvents)
         {
-            var color = GetColor(ev.AccountEmail, eventColors, accountIndex);
+            var color = EventColorPicker.Pick(ev, accountIndex);
+            var textColor = EventColorPicker.PickText(ev);
             int col = (ev.Start.Date - weekStart).Days;
             if (col is >= 0 and < 7)
-                dayItems[col].Add(new EventChipData(ev.Title, color, ev.IsAllDay ? null : ev.Start, ev.IsAllDay));
+                dayItems[col].Add(new EventChipData(ev.Title, color, textColor, ev.IsAllDay ? null : ev.Start, ev.IsAllDay));
         }
 
         foreach (var task in tasks)
@@ -121,7 +123,7 @@ public sealed partial class WeekRowControl : UserControl
             var day = task.Due.Value.ToDateTime(TimeOnly.MinValue).Date;
             int col = (day - weekStart).Days;
             if (col is >= 0 and < 7)
-                dayItems[col].Add(new EventChipData("☑ " + task.Title, TaskColor, null, true));
+                dayItems[col].Add(new EventChipData("☑ " + task.Title, TaskColor, null, null, true));
         }
 
         // ── Step 5: background borders + day cells ────────────────────────────
@@ -168,7 +170,7 @@ public sealed partial class WeekRowControl : UserControl
 
         foreach (var seg in segments)
         {
-            var band = MakeSpanBand(seg.Title, seg.Color, seg.IsFirst, seg.IsLast);
+            var band = MakeSpanBand(seg.Title, seg.Color, seg.TextColor, seg.IsFirst, seg.IsLast);
             Grid.SetColumn(band, seg.ColStart);
             Grid.SetColumnSpan(band, seg.ColEnd - seg.ColStart + 1);
             Grid.SetRow(band, 1 + seg.Lane);
@@ -176,10 +178,11 @@ public sealed partial class WeekRowControl : UserControl
         }
     }
 
-    private static Border MakeSpanBand(string title, Color color, bool isFirst, bool isLast)
+    private static Border MakeSpanBand(string title, Color color, Color? textColor, bool isFirst, bool isLast)
     {
         double leftR  = isFirst ? 3 : 0;
         double rightR = isLast  ? 3 : 0;
+        var fg = textColor ?? EventColorPicker.PickReadable(color);
         return new Border
         {
             Background = new SolidColorBrush(color),
@@ -191,21 +194,11 @@ public sealed partial class WeekRowControl : UserControl
             {
                 Text = title,
                 FontSize = 11,
-                Foreground = new SolidColorBrush(Colors.White),
+                Foreground = new SolidColorBrush(fg),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 TextWrapping = TextWrapping.NoWrap,
             } : null,
         };
     }
 
-    private static Color GetColor(string? email, Color[] palette, Dictionary<string, int> index)
-    {
-        if (email == null) return palette[0];
-        if (!index.TryGetValue(email, out int i))
-        {
-            i = index.Count % palette.Length;
-            index[email] = i;
-        }
-        return palette[i];
-    }
 }

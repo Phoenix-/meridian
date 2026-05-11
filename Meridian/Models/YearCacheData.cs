@@ -28,7 +28,15 @@ public sealed class TaskStoreData
     public Dictionary<string, List<TaskItem>> TasksByAccount { get; set; } = [];
 }
 
+public sealed class CalendarListData
+{
+    public string AccountId { get; set; } = "";
+    public DateTime SavedAtUtc { get; set; }
+    public List<CalendarInfo> Calendars { get; set; } = [];
+}
+
 [JsonSerializable(typeof(YearCacheData))]
 [JsonSerializable(typeof(TaskStoreData))]
+[JsonSerializable(typeof(CalendarListData))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal partial class StoreJsonContext : JsonSerializerContext { }

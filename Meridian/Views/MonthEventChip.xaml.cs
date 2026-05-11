@@ -15,6 +15,9 @@ public sealed partial class MonthEventChip : UserControl
     public void Apply(EventChipData data)
     {
         Root.Background = new SolidColorBrush(data.Color);
+        var fg = new SolidColorBrush(data.TextColor ?? EventColorPicker.PickReadable(data.Color));
+        TitleText.Foreground = fg;
+        TimeText.Foreground = fg;
         TitleText.Text = data.Title;
 
         if (data.StartTime.HasValue)
@@ -32,7 +35,7 @@ public sealed partial class MonthEventChip : UserControl
     internal static MonthEventChip MakeProbe(Color color)
     {
         var chip = new MonthEventChip();
-        chip.Apply(new EventChipData("x", color, null, true));
+        chip.Apply(new EventChipData("x", color, null, null, true));
         return chip;
     }
 }

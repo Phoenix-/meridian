@@ -13,6 +13,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private readonly CalendarCache _events;
     private readonly TaskCache _tasks;
+    private readonly CalendarListCache _calendarLists;
     private readonly DispatcherQueue _dispatcher;
     private readonly CancellationTokenSource _pollCts = new();
 
@@ -24,15 +25,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel(AccountManager accounts, ProviderRegistry providers, DispatcherQueue dispatcher)
     {
         _dispatcher = dispatcher;
-        _events = new CalendarCache(accounts, providers, new JsonEventStore());
+        _calendarLists = new CalendarListCache(accounts, providers, new JsonCalendarListStore());
+        _events = new CalendarCache(accounts, providers, new JsonEventStore(), _calendarLists);
         _tasks  = new TaskCache(accounts, providers, new JsonTaskStore());
 
         _events.DataRefreshed += OnEventsRefreshed;
         _tasks.DataRefreshed += OnTasksRefreshed;
+        _calendarLists.DataRefreshed += OnCalendarListsRefreshed;
 
         _events.FetchingChanged += UpdateFetching;
         _tasks.FetchingChanged += UpdateFetching;
 
+        _calendarLists.RefreshAll();
         _ = PollLoopAsync(_pollCts.Token);
     }
 
@@ -105,6 +109,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         _events.InvalidateAll();
         _tasks.InvalidateAll();
+        _calendarLists.InvalidateAll();
+        _calendarLists.RefreshAll();
         Refresh();
     }
 
@@ -132,6 +138,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var (from, to) = _activeView.GetRange();
             ApplyCurrent(from, to);
         });
+    }
+
+    private void OnCalendarListsRefreshed()
+    {
+        // A fresh calendar list may unlock previously-unknown streams; trigger
+        // a Refresh on the UI thread so EnsureYear picks them up.
+        _dispatcher.TryEnqueue(Refresh);
     }
 
     private void ApplyCurrent(DateTime from, DateTime to)

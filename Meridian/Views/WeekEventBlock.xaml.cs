@@ -14,10 +14,15 @@ public sealed partial class WeekEventBlock : UserControl
         InitializeComponent();
     }
 
-    public void Apply(string title, DateTime start, DateTime end, Color color, double height)
+    public void Apply(string title, DateTime start, DateTime end, Color color, Color? textColor, double height)
     {
         Root.Background = new SolidColorBrush(color);
         Root.BorderBrush = (SolidColorBrush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
+
+        var fg = textColor ?? EventColorPicker.PickReadable(color);
+        var fgBrush = new SolidColorBrush(fg);
+        var fgDim = new SolidColorBrush(Color.FromArgb(200, fg.R, fg.G, fg.B));
+        TitleText.Foreground = fgBrush;
 
         var startStr = start.ToString("HH:mm");
         var timeRange = $"{startStr}–{end:HH:mm}";
@@ -34,7 +39,7 @@ public sealed partial class WeekEventBlock : UserControl
         {
             TitleText.Text = title;
             TimeText.Text = timeRange;
-            TimeText.Foreground = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
+            TimeText.Foreground = fgDim;
             TimeText.Visibility = Visibility.Visible;
         }
         else

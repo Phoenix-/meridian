@@ -31,16 +31,18 @@ public sealed class CalendarCache
     private readonly AccountManager _accounts;
     private readonly ProviderRegistry _providers;
     private readonly IEventStore _store;
+    private readonly CalendarListCache _calendars;
 
     private readonly Dictionary<(AccountId Account, string CalId, int Year), YearStream> _streams = [];
 
     private int _activeFetches;
 
-    public CalendarCache(AccountManager accounts, ProviderRegistry providers, IEventStore store)
+    public CalendarCache(AccountManager accounts, ProviderRegistry providers, IEventStore store, CalendarListCache calendars)
     {
         _accounts = accounts;
         _providers = providers;
         _store = store;
+        _calendars = calendars;
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -69,8 +71,20 @@ public sealed class CalendarCache
         {
             var stream = _streams[key];
             if (stream.State is YearStreamState.Loading) continue;
-            _ = SyncStreamAsync(key.Account, key.CalId, key.Year, stream);
+            // The calendar may have been removed or deselected since the stream
+            // was loaded — fall back to a synthetic CalendarInfo to keep state
+            // consistent if so (we just won't tag events with a fresh color).
+            var info = LookupCalendar(key.Account, key.CalId)
+                       ?? new CalendarInfo { Id = key.CalId };
+            _ = SyncStreamAsync(key.Account, info, key.Year, stream);
         }
+    }
+
+    private CalendarInfo? LookupCalendar(AccountId account, string calId)
+    {
+        foreach (var c in _calendars.GetFor(account))
+            if (c.Id == calId) return c;
+        return null;
     }
 
     /// Drops all in-memory state and on-disk cache. Use after adding or removing
@@ -88,18 +102,20 @@ public sealed class CalendarCache
     {
         foreach (var account in _accounts.Ids)
         {
-            var provider = _providers.Get(account);
-            var calId = provider.PrimaryCalendarId;
-            var key = (account, calId, year);
-
-            if (!_streams.TryGetValue(key, out var stream))
+            foreach (var cal in _calendars.GetFor(account))
             {
-                stream = LoadFromDisk(account, calId, year);
-                _streams[key] = stream;
-            }
+                if (!cal.Selected) continue;
 
-            if (stream.State is YearStreamState.Empty or YearStreamState.Stale)
-                _ = SyncStreamAsync(account, calId, year, stream);
+                var key = (account, cal.Id, year);
+                if (!_streams.TryGetValue(key, out var stream))
+                {
+                    stream = LoadFromDisk(account, cal.Id, year);
+                    _streams[key] = stream;
+                }
+
+                if (stream.State is YearStreamState.Empty or YearStreamState.Stale)
+                    _ = SyncStreamAsync(account, cal, year, stream);
+            }
         }
     }
 
@@ -120,7 +136,7 @@ public sealed class CalendarCache
         return stream;
     }
 
-    private async Task SyncStreamAsync(AccountId account, string calId, int year, YearStream stream)
+    private async Task SyncStreamAsync(AccountId account, CalendarInfo cal, int year, YearStream stream)
     {
         if (stream.State == YearStreamState.Loading)
         {
@@ -131,7 +147,7 @@ public sealed class CalendarCache
         stream.State = YearStreamState.Loading;
         _activeFetches++;
         FetchingChanged?.Invoke();
-        stream.LoadingTask = DoSync(account, calId, year, stream);
+        stream.LoadingTask = DoSync(account, cal, year, stream);
         try { await stream.LoadingTask; }
         catch { /* state already set to Stale by DoSync */ }
         finally
@@ -144,7 +160,7 @@ public sealed class CalendarCache
         DataRefreshed?.Invoke([year]);
     }
 
-    private async Task DoSync(AccountId account, string calId, int year, YearStream stream)
+    private async Task DoSync(AccountId account, CalendarInfo cal, int year, YearStream stream)
     {
         var provider = _providers.Get(account);
         var windowStart = new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -156,22 +172,28 @@ public sealed class CalendarCache
 
             if (stream.SyncToken is { } token && stream.WindowStartUtc == windowStart && stream.WindowEndUtc == windowEnd)
             {
-                result = await provider.IncrementalSyncEventsAsync(account, calId, token);
+                result = await provider.IncrementalSyncEventsAsync(account, cal.Id, token);
                 if (result.SyncTokenExpired)
                 {
-                    // Token gone — fall back to initial.
-                    result = await provider.InitialSyncEventsAsync(account, calId, windowStart, windowEnd);
+                    result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd);
                     stream.Events.Clear();
                 }
             }
             else
             {
-                result = await provider.InitialSyncEventsAsync(account, calId, windowStart, windowEnd);
+                result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd);
                 stream.Events.Clear();
             }
 
             foreach (var e in result.Upserts)
+            {
+                // Provider returns events without knowing which calendar they
+                // came from; we stamp it here for UI color/group logic.
+                e.CalendarId = cal.Id;
+                e.CalendarColor = cal.BackgroundColor;
+                e.CalendarTextColor = cal.ForegroundColor;
                 stream.Events[e.Id] = e;
+            }
             foreach (var id in result.CancelledIds)
                 stream.Events.Remove(id);
 
@@ -186,7 +208,7 @@ public sealed class CalendarCache
             _store.Save(new YearCacheData
             {
                 AccountId = account.ToString(),
-                CalendarId = calId,
+                CalendarId = cal.Id,
                 Year = year,
                 WindowStartUtc = windowStart,
                 WindowEndUtc = windowEnd,
@@ -205,11 +227,11 @@ public sealed class CalendarCache
 
     private List<CalendarEvent> Slice(DateTime from, DateTime to)
     {
-        // Year streams overlap on event ids only for events that straddle a
-        // year boundary (returned by both years' initial sync). Dedupe by
-        // (AccountEmail, Id) — same email + id refers to the same event across
-        // streams of one account.
-        var seen = new HashSet<(string?, string)>();
+        // Year streams overlap on event ids when an event straddles a year
+        // boundary (returned by both years' initial sync). Dedupe by
+        // (AccountEmail, CalendarId, Id) — same triple across streams of one
+        // account/calendar means it's the same event.
+        var seen = new HashSet<(string?, string?, string)>();
         var result = new List<CalendarEvent>();
 
         foreach (var stream in _streams.Values)
@@ -217,7 +239,7 @@ public sealed class CalendarCache
             foreach (var e in stream.Events.Values)
             {
                 if (e.Start >= to || e.End <= from) continue;
-                if (!seen.Add((e.AccountEmail, e.Id))) continue;
+                if (!seen.Add((e.AccountEmail, e.CalendarId, e.Id))) continue;
                 result.Add(e);
             }
         }

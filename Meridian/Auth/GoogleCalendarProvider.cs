@@ -22,8 +22,6 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
     public Task RevokeAccountAsync(AccountId id, CancellationToken ct = default) =>
         GoogleOAuthClient.RevokeAsync(id, ct);
 
-    public string PrimaryCalendarId => "primary";
-
     public Task<EventSyncResult> InitialSyncEventsAsync(
         AccountId id, string calendarId, DateTime from, DateTime to, CancellationToken ct = default) =>
         new GoogleApiClient(id).InitialSyncEventsAsync(calendarId, from, to, ct);
@@ -31,6 +29,9 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
     public Task<EventSyncResult> IncrementalSyncEventsAsync(
         AccountId id, string calendarId, string syncToken, CancellationToken ct = default) =>
         new GoogleApiClient(id).IncrementalSyncEventsAsync(calendarId, syncToken, ct);
+
+    public Task<List<CalendarInfo>> GetCalendarsAsync(AccountId id, CancellationToken ct = default) =>
+        new GoogleApiClient(id).GetCalendarsAsync(ct);
 
     public Task<Dictionary<string, DateTime>> GetTaskReminderTimesAsync(
         AccountId id, DateTime from, DateTime to, CancellationToken ct = default) =>

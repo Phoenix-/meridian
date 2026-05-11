@@ -31,6 +31,25 @@ internal class EventTime
     [JsonPropertyName("date")]     public string? Date { get; set; }
 }
 
+internal class CalendarListResponse
+{
+    [JsonPropertyName("items")]         public List<CalendarListEntry>? Items { get; set; }
+    [JsonPropertyName("nextPageToken")] public string? NextPageToken { get; set; }
+}
+
+internal class CalendarListEntry
+{
+    [JsonPropertyName("id")]              public string? Id { get; set; }
+    [JsonPropertyName("summary")]         public string? Summary { get; set; }
+    [JsonPropertyName("summaryOverride")] public string? SummaryOverride { get; set; }
+    [JsonPropertyName("backgroundColor")] public string? BackgroundColor { get; set; }
+    [JsonPropertyName("foregroundColor")] public string? ForegroundColor { get; set; }
+    [JsonPropertyName("selected")]        public bool? Selected { get; set; }
+    [JsonPropertyName("accessRole")]      public string? AccessRole { get; set; }
+    [JsonPropertyName("primary")]         public bool? Primary { get; set; }
+    [JsonPropertyName("deleted")]         public bool? Deleted { get; set; }
+}
+
 internal class TaskListList
 {
     [JsonPropertyName("items")]         public List<TaskListDto>? Items { get; set; }
@@ -59,6 +78,7 @@ internal class TaskDto
 }
 
 [JsonSerializable(typeof(EventList))]
+[JsonSerializable(typeof(CalendarListResponse))]
 [JsonSerializable(typeof(TaskListList))]
 [JsonSerializable(typeof(TaskList))]
 internal partial class GoogleApiJsonContext : JsonSerializerContext { }
@@ -210,6 +230,47 @@ public sealed class GoogleApiClient(AccountId id)
         while (pageToken is not null);
 
         return new EventSyncResult(upserts, cancelled, nextSyncToken, false);
+    }
+
+    // Fetches all calendars (own + shared + subscribed) visible to this account.
+    // Deleted calendars are filtered out; the rest is returned as-is.
+    public async Task<List<CalendarInfo>> GetCalendarsAsync(CancellationToken ct = default)
+    {
+        var token = await GoogleOAuthClient.GetAccessTokenAsync(id, ct);
+        var result = new List<CalendarInfo>();
+        string? pageToken = null;
+
+        do
+        {
+            var url = $"{CalendarBase}/users/me/calendarList" +
+                      (pageToken is null ? "" : $"?pageToken={Uri.EscapeDataString(pageToken)}");
+
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            req.Headers.Authorization = new("Bearer", token);
+            using var resp = await _http.SendAsync(req, ct);
+            resp.EnsureSuccessStatusCode();
+
+            var page = await resp.Content.ReadFromJsonAsync(GoogleApiJsonContext.Default.CalendarListResponse, ct);
+
+            foreach (var item in page?.Items ?? [])
+            {
+                if (item.Id is null || item.Deleted == true) continue;
+                result.Add(new CalendarInfo
+                {
+                    Id = item.Id,
+                    Title = item.SummaryOverride ?? item.Summary ?? item.Id,
+                    BackgroundColor = item.BackgroundColor,
+                    ForegroundColor = item.ForegroundColor,
+                    Selected = item.Selected ?? false,
+                    AccessRole = item.AccessRole ?? "",
+                });
+            }
+
+            pageToken = page?.NextPageToken;
+        }
+        while (pageToken is not null);
+
+        return result;
     }
 
     // Returns taskId -> reminderDateTime from the special @tasks calendar.

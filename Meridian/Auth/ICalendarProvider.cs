@@ -29,9 +29,8 @@ public interface ICalendarProvider
     Task<EventSyncResult> IncrementalSyncEventsAsync(
         AccountId id, string calendarId, string syncToken, CancellationToken ct = default);
 
-    // The calendarId to use for the primary calendar of this account. For Google
-    // it's the literal "primary"; placeholder for multi-calendar later.
-    string PrimaryCalendarId { get; }
+    // All calendars (own + shared + subscribed) visible to this account.
+    Task<List<CalendarInfo>> GetCalendarsAsync(AccountId id, CancellationToken ct = default);
 
     // taskId -> reminder DateTime; returns empty dict if not supported.
     Task<Dictionary<string, DateTime>> GetTaskReminderTimesAsync(

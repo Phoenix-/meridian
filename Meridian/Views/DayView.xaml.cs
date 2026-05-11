@@ -181,9 +181,10 @@ public sealed partial class DayView : Page, ICalendarView
 
         foreach (var ev in allDayEvents.OrderBy(e => e.Start))
         {
-            var color = GetAccountColor(ev.AccountEmail, accountIndex);
+            var color = EventColorPicker.Pick(ev, accountIndex);
+            var textColor = EventColorPicker.PickText(ev);
             var chip = new MonthEventChip();
-            chip.Apply(new EventChipData(ev.Title, color, null, true));
+            chip.Apply(new EventChipData(ev.Title, color, textColor, null, true));
 
             int row = AllDayGrid.RowDefinitions.Count;
             AllDayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
@@ -195,7 +196,7 @@ public sealed partial class DayView : Page, ICalendarView
         foreach (var t in _lastSnapshot!.Tasks.Where(t => t.Due.HasValue && !t.ReminderTime.HasValue && t.Due.Value == DateOnly.FromDateTime(_date.Date)))
         {
             var chip = new MonthEventChip();
-            chip.Apply(new EventChipData("☑ " + t.Title, TaskColor, null, true));
+            chip.Apply(new EventChipData("☑ " + t.Title, TaskColor, null, null, true));
 
             int row = AllDayGrid.RowDefinitions.Count;
             AllDayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
@@ -368,9 +369,10 @@ public sealed partial class DayView : Page, ICalendarView
                 foreach (var layout in layouts)
                 {
                     bool isTask = taskEvents.Any(t => t.Id == layout.Event.Id);
-                    var color = isTask ? TaskColor : GetAccountColor(layout.Event.AccountEmail, accountIndex);
+                    var color = isTask ? TaskColor : EventColorPicker.Pick(layout.Event, accountIndex);
+                    var textColor = isTask ? null : EventColorPicker.PickText(layout.Event);
                     var block = new WeekEventBlock();
-                    block.Apply(layout.Event.Title, layout.Event.Start, layout.Event.End, color, layout.Height);
+                    block.Apply(layout.Event.Title, layout.Event.Start, layout.Event.End, color, textColor, layout.Height);
                     block.Width  = Math.Max(layout.Width, 20);
                     block.Height = layout.Height;
                     Canvas.SetTop(block, layout.Top);
