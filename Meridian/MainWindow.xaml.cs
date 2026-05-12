@@ -84,6 +84,10 @@ public sealed partial class MainWindow : Window
         UpdateTitleBarPadding();
         if (args.DidSizeChange)
         {
+            // After max<->restore, AppWindow fires Changed before TitleBar.RightInset updates;
+            // re-apply padding on the next dispatcher tick once insets settle.
+            DispatcherQueue.TryEnqueue(UpdateTitleBarPadding);
+
             // OverlappedPresenter cast is broken in AOT — detect maximized via display work area.
             var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
                 AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
@@ -106,10 +110,14 @@ public sealed partial class MainWindow : Window
 
     private void UpdateTitleBarPadding()
     {
+        // TitleBar insets are in physical pixels; Thickness is in DIPs — divide by raster scale.
+        var scale = Content?.XamlRoot?.RasterizationScale ?? 1.0;
+        if (scale <= 0) scale = 1.0;
+
         AppTitleBar.Padding = new Thickness(
-            AppWindow.TitleBar.LeftInset + 8,
+            (AppWindow.TitleBar.LeftInset / scale) + 8,
             8,
-            AppWindow.TitleBar.RightInset + 8,
+            (AppWindow.TitleBar.RightInset / scale) + 8,
             8);
     }
 
@@ -299,7 +307,13 @@ public sealed partial class MainWindow : Window
 
     private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.RefreshFromServer();
 
-    private void OnWindowClosed(object sender, WindowEventArgs args) => ViewModel.Dispose();
+    private void OnWindowClosed(object sender, WindowEventArgs args)
+    {
+        // AppWindow.Changed can still fire after Closed, when Window.Content has
+        // already been torn down — accessing it then throws COMException.
+        AppWindow.Changed -= OnAppWindowChanged;
+        ViewModel.Dispose();
+    }
 
     private async void OnAddAccountClick(object sender, RoutedEventArgs e)
     {
