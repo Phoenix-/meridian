@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Windowing;
 using Windows.Graphics;
 using Meridian.Auth;
+using Meridian.Diagnostics;
 using Meridian.Models;
 using Meridian.Services;
 using Meridian.ViewModels;
@@ -164,7 +165,7 @@ public sealed partial class MainWindow : Window
         var root = Content?.XamlRoot;
         if (root is null)
         {
-            System.Diagnostics.Debug.WriteLine($"[{title}] {message}");
+            Log.Write("UI", $"early error '{title}': {message}");
             return;
         }
         var dialog = new ContentDialog
