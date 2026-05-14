@@ -66,6 +66,11 @@ public sealed class CalendarCache
         return Slice(from, to);
     }
 
+    /// Returns the deduped union of events from every loaded stream that
+    /// overlaps [from, to). Used by the reminder scheduler to pick events in
+    /// the near future without triggering year hydration.
+    public List<CalendarEvent> SnapshotRange(DateTime from, DateTime to) => Slice(from, to);
+
     /// Forces incremental sync of every loaded year. Use for the Refresh button
     /// and the background timer. Cheap when nothing changed (one HTTP per stream
     /// returning an empty diff).
@@ -193,19 +198,21 @@ public sealed class CalendarCache
         {
             EventSyncResult result;
 
+            var defaults = cal.DefaultPopupReminderMinutes;
+
             if (stream.SyncToken is { } token && stream.WindowStartUtc == windowStart && stream.WindowEndUtc == windowEnd)
             {
-                result = await provider.IncrementalSyncEventsAsync(account, cal.Id, token);
+                result = await provider.IncrementalSyncEventsAsync(account, cal.Id, token, defaults);
                 if (result.SyncTokenExpired)
                 {
-                    result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd);
+                    result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd, defaults);
                     if (startGen != _generation) return;
                     stream.Events.Clear();
                 }
             }
             else
             {
-                result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd);
+                result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd, defaults);
                 if (startGen != _generation) return;
                 stream.Events.Clear();
             }
@@ -261,9 +268,15 @@ public sealed class CalendarCache
         var seen = new HashSet<(string?, string?, string)>();
         var result = new List<CalendarEvent>();
 
-        foreach (var stream in _streams.Values)
+        // Snapshot the stream list and each stream's events before iterating.
+        // DoSync continuations may mutate _streams[i].Events on the thread pool
+        // (no SynchronizationContext capture), and reminder scheduling now
+        // races with Refresh's UI-thread calls into Slice.
+        var streamSnapshot = _streams.Values.ToArray();
+        foreach (var stream in streamSnapshot)
         {
-            foreach (var e in stream.Events.Values)
+            var events = stream.Events.Values.ToArray();
+            foreach (var e in events)
             {
                 if (e.Start >= to || e.End <= from) continue;
                 if (!seen.Add((e.AccountEmail, e.CalendarId, e.Id))) continue;

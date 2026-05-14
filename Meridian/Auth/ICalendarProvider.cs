@@ -21,13 +21,17 @@ public interface ICalendarProvider
     // ── Data ──────────────────────────────────────────────────────────────────
 
     // Full sync for a window. Returns events + a sync token bound to the window.
+    // defaultPopupMinutes is the owning calendar's default popup reminders; the
+    // provider uses it to resolve event.reminders.useDefault into concrete minutes.
     Task<EventSyncResult> InitialSyncEventsAsync(
-        AccountId id, string calendarId, DateTime from, DateTime to, CancellationToken ct = default);
+        AccountId id, string calendarId, DateTime from, DateTime to,
+        IReadOnlyList<int>? defaultPopupMinutes = null, CancellationToken ct = default);
 
     // Incremental sync using a previously-stored token. If the token expired
     // (HTTP 410), result.SyncTokenExpired == true and caller must re-init.
     Task<EventSyncResult> IncrementalSyncEventsAsync(
-        AccountId id, string calendarId, string syncToken, CancellationToken ct = default);
+        AccountId id, string calendarId, string syncToken,
+        IReadOnlyList<int>? defaultPopupMinutes = null, CancellationToken ct = default);
 
     // All calendars (own + shared + subscribed) visible to this account.
     Task<List<CalendarInfo>> GetCalendarsAsync(AccountId id, CancellationToken ct = default);

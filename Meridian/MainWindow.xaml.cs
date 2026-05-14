@@ -51,7 +51,50 @@ public sealed partial class MainWindow : Window
 
         _accountManager.Accounts.CollectionChanged += OnAccountsChanged;
 
+        MeridianToastActivator.Invoked += OnToastInvoked;
+        Closed += (_, _) => MeridianToastActivator.Invoked -= OnToastInvoked;
+
         _ = InitAsync();
+    }
+
+    private void OnToastInvoked(string args)
+    {
+        // Activate() runs on the COM RPC thread. Hop to the UI dispatcher for
+        // any window manipulation, and never let an exception escape — this
+        // path is far from the user's last action and stack traces are useless.
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                DateTime? targetDate = null;
+                foreach (var pair in args.Split('&', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var eq = pair.IndexOf('=');
+                    if (eq < 0) continue;
+                    var k = pair[..eq];
+                    var v = pair[(eq + 1)..];
+                    if (k == "date" && DateTime.TryParse(v, out var d)) targetDate = d.Date;
+                }
+
+                // Bring the window forward regardless of args. If we somehow
+                // get an empty/garbled launch we still want the user to land
+                // on the app rather than nothing happening.
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+                AppWindow.MoveInZOrderAtTop();
+
+                if (targetDate is { } date)
+                {
+                    if (ContentFrame.Content is WeekView)   NavigateWeek(date);
+                    else if (ContentFrame.Content is MonthView) NavigateMonth(date);
+                    else NavigateDay(date);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Toast", ex, "OnToastInvoked");
+            }
+        });
     }
 
     private void OnAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -307,6 +350,16 @@ public sealed partial class MainWindow : Window
     }
 
     private void OnRefreshClick(object sender, RoutedEventArgs e) => ViewModel.RefreshFromServer();
+
+    private void OnTestToastClick(object sender, RoutedEventArgs e)
+    {
+        // Diagnostic affordance: schedules a self-fired toast 30 seconds out.
+        // Uses the same Show()-based path as ReminderScheduler so a green
+        // test here is equivalent to a green real reminder. The launch arg
+        // points at today's date so a click exercises the navigation path
+        // too (MainWindow.OnToastInvoked picks it up).
+        ToastTester.FireIn(TimeSpan.FromSeconds(30));
+    }
 
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {

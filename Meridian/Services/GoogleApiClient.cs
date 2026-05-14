@@ -23,6 +23,19 @@ internal class EventDto
     [JsonPropertyName("colorId")]     public string? ColorId { get; set; }
     [JsonPropertyName("start")]       public EventTime? Start { get; set; }
     [JsonPropertyName("end")]         public EventTime? End { get; set; }
+    [JsonPropertyName("reminders")]   public ReminderInfo? Reminders { get; set; }
+}
+
+internal class ReminderInfo
+{
+    [JsonPropertyName("useDefault")] public bool? UseDefault { get; set; }
+    [JsonPropertyName("overrides")]  public List<ReminderOverride>? Overrides { get; set; }
+}
+
+internal class ReminderOverride
+{
+    [JsonPropertyName("method")]  public string? Method { get; set; }
+    [JsonPropertyName("minutes")] public int? Minutes { get; set; }
 }
 
 internal class EventTime
@@ -48,6 +61,7 @@ internal class CalendarListEntry
     [JsonPropertyName("accessRole")]      public string? AccessRole { get; set; }
     [JsonPropertyName("primary")]         public bool? Primary { get; set; }
     [JsonPropertyName("deleted")]         public bool? Deleted { get; set; }
+    [JsonPropertyName("defaultReminders")] public List<ReminderOverride>? DefaultReminders { get; set; }
 }
 
 internal class TaskListList
@@ -106,7 +120,8 @@ public sealed class GoogleApiClient(AccountId id)
     // Full sync for a calendar window. Returns all events plus a nextSyncToken
     // bound to this exact (calendarId, timeMin, timeMax, singleEvents) tuple.
     public async Task<EventSyncResult> InitialSyncEventsAsync(
-        string calendarId, DateTime from, DateTime to, CancellationToken ct = default)
+        string calendarId, DateTime from, DateTime to,
+        IReadOnlyList<int>? defaultPopupMinutes = null, CancellationToken ct = default)
     {
         var baseUrl = $"{CalendarBase}/calendars/{Uri.EscapeDataString(calendarId)}/events" +
                       $"?singleEvents=true" +
@@ -114,21 +129,23 @@ public sealed class GoogleApiClient(AccountId id)
                       $"&timeMax={Uri.EscapeDataString(to.ToUniversalTime().ToString("o"))}";
         // orderBy=startTime is incompatible with sync tokens, so we omit it and
         // let the caller sort. Same query shape will be used for incremental.
-        var (upserts, cancelled, nextSync, expired) = await PageSyncAsync(baseUrl, ct);
+        var (upserts, cancelled, nextSync, expired) = await PageSyncAsync(baseUrl, defaultPopupMinutes, ct);
         return new EventSyncResult(upserts, cancelled, nextSync, expired);
     }
 
     // Incremental sync using a previously-stored token. If Google returns 410
     // Gone the token is too old; caller must re-run InitialSyncEventsAsync.
     public async Task<EventSyncResult> IncrementalSyncEventsAsync(
-        string calendarId, string syncToken, CancellationToken ct = default)
+        string calendarId, string syncToken,
+        IReadOnlyList<int>? defaultPopupMinutes = null, CancellationToken ct = default)
     {
         var baseUrl = $"{CalendarBase}/calendars/{Uri.EscapeDataString(calendarId)}/events" +
                       $"?syncToken={Uri.EscapeDataString(syncToken)}";
-        return await PageSyncAsync(baseUrl, ct);
+        return await PageSyncAsync(baseUrl, defaultPopupMinutes, ct);
     }
 
-    private async Task<EventSyncResult> PageSyncAsync(string baseUrl, CancellationToken ct)
+    private async Task<EventSyncResult> PageSyncAsync(
+        string baseUrl, IReadOnlyList<int>? defaultPopupMinutes, CancellationToken ct)
     {
         var token = await GoogleOAuthClient.GetAccessTokenAsync(id, ct);
         var upserts = new List<CalendarEvent>();
@@ -175,6 +192,7 @@ public sealed class GoogleApiClient(AccountId id)
                     CalendarId  = null,
                     Color       = item.ColorId,
                     AccountEmail = id.Email,
+                    ReminderMinutes = ResolveReminderMinutes(item.Reminders, defaultPopupMinutes),
                 });
             }
 
@@ -218,6 +236,7 @@ public sealed class GoogleApiClient(AccountId id)
                     ForegroundColor = item.ForegroundColor,
                     Selected = item.Selected ?? false,
                     AccessRole = item.AccessRole ?? "",
+                    DefaultPopupReminderMinutes = ExtractPopupMinutes(item.DefaultReminders),
                 });
             }
 
@@ -291,6 +310,29 @@ public sealed class GoogleApiClient(AccountId id)
 
     private static async Task<TaskList?> GetTaskListAsync(string url, string token, CancellationToken ct)
         => await SendGetAsync(url, token, GoogleApiJsonContext.Default.TaskList, ct);
+
+    // Returns the popup-method reminder minutes to attach to an event. Returns
+    // null when there are no popup reminders so the scheduler can skip cheaply.
+    private static List<int>? ResolveReminderMinutes(
+        ReminderInfo? reminders, IReadOnlyList<int>? defaultPopupMinutes)
+    {
+        if (reminders is null) return null;
+        if (reminders.UseDefault == true)
+            return defaultPopupMinutes is { Count: > 0 } d ? [..d] : null;
+        return ExtractPopupMinutes(reminders.Overrides);
+    }
+
+    private static List<int>? ExtractPopupMinutes(List<ReminderOverride>? src)
+    {
+        if (src is null || src.Count == 0) return null;
+        List<int>? result = null;
+        foreach (var r in src)
+        {
+            if (r.Method != "popup" || r.Minutes is not { } m) continue;
+            (result ??= []).Add(m);
+        }
+        return result;
+    }
 
     private static async Task<T?> SendGetAsync<T>(
         string url, string accessToken,
