@@ -13,4 +13,8 @@ public sealed class CalendarInfo
     // Meridian honors this directly; calendars with Selected=false are skipped.
     public bool Selected { get; set; }
     public string AccessRole { get; set; } = "";
+    // Per-calendar default popup reminders (minutes before event start) used by
+    // events whose reminders.useDefault is true. Email-method defaults are
+    // skipped — Google delivers those itself.
+    public List<int>? DefaultPopupReminderMinutes { get; set; }
 }

@@ -44,6 +44,9 @@
                         <ProgressRing x:Name="RefreshRing" IsActive="False" Width="16" Height="16"/>
                     </Grid>
                 </Button>
+                <Button x:Name="BtnTestToast" Content="&#xEA8F;" FontFamily="Segoe MDL2 Assets"
+                        Click="OnTestToastClick"
+                        ToolTipService.ToolTip="Тестовый тост через 30 секунд"/>
                 <Button x:Name="BtnAccounts" Content="&#xE77B;" FontFamily="Segoe MDL2 Assets"
                         ToolTipService.ToolTip="Аккаунты">
                     <Button.Flyout>

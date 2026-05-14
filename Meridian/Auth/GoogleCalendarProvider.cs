@@ -23,12 +23,14 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
         GoogleOAuthClient.RevokeAsync(id, ct);
 
     public Task<EventSyncResult> InitialSyncEventsAsync(
-        AccountId id, string calendarId, DateTime from, DateTime to, CancellationToken ct = default) =>
-        new GoogleApiClient(id).InitialSyncEventsAsync(calendarId, from, to, ct);
+        AccountId id, string calendarId, DateTime from, DateTime to,
+        IReadOnlyList<int>? defaultPopupMinutes = null, CancellationToken ct = default) =>
+        new GoogleApiClient(id).InitialSyncEventsAsync(calendarId, from, to, defaultPopupMinutes, ct);
 
     public Task<EventSyncResult> IncrementalSyncEventsAsync(
-        AccountId id, string calendarId, string syncToken, CancellationToken ct = default) =>
-        new GoogleApiClient(id).IncrementalSyncEventsAsync(calendarId, syncToken, ct);
+        AccountId id, string calendarId, string syncToken,
+        IReadOnlyList<int>? defaultPopupMinutes = null, CancellationToken ct = default) =>
+        new GoogleApiClient(id).IncrementalSyncEventsAsync(calendarId, syncToken, defaultPopupMinutes, ct);
 
     public Task<List<CalendarInfo>> GetCalendarsAsync(AccountId id, CancellationToken ct = default) =>
         new GoogleApiClient(id).GetCalendarsAsync(ct);
