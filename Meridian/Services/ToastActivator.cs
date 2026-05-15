@@ -94,14 +94,64 @@ internal partial class MeridianToastActivator : INotificationActivationCallback
                          NOTIFICATION_USER_INPUT_DATA[] data, uint dataCount)
     {
         Log.Write("Toast", $"activated: args='{invokedArgs}'");
+        // Forward foreground-set rights from this COM RPC thread (the shell
+        // granted them for this call) to "any process" so the UI thread can
+        // later issue SetForegroundWindow without tripping the foreground
+        // lock. Without this hand-off, the dispatcher hop loses the privilege
+        // and the click only flashes the taskbar button.
+        NativeMethods.AllowSetForegroundWindow(NativeMethods.ASFW_ANY);
         try { Invoked?.Invoke(invokedArgs ?? ""); }
         catch (Exception ex) { Log.Error("Toast", ex, "Activate handler"); }
     }
 }
 
+// IClassFactory is the COM contract `CoRegisterClassObject` expects.
+// The shell calls IClassFactory::CreateInstance(IID_INotificationActivation-
+// Callback, ...) on whatever we registered; without an IClassFactory CCW
+// QueryInterface fails with E_NOINTERFACE and the warm-click path silently
+// dies (cold-click still works because the shell falls back to LocalServer32).
+[GeneratedComInterface]
+[Guid("00000001-0000-0000-C000-000000000046")]
+internal partial interface IClassFactory
+{
+    [PreserveSig] int CreateInstance(IntPtr pUnkOuter, in Guid riid, out IntPtr ppv);
+    [PreserveSig] int LockServer([MarshalAs(UnmanagedType.Bool)] bool fLock);
+}
+
+[GeneratedComClass]
+internal partial class MeridianActivatorFactory : IClassFactory
+{
+    private const int E_NOINTERFACE     = unchecked((int)0x80004002);
+    private const int CLASS_E_NOAGGREGATION = unchecked((int)0x80040110);
+
+    public int CreateInstance(IntPtr pUnkOuter, in Guid riid, out IntPtr ppv)
+    {
+        ppv = IntPtr.Zero;
+        if (pUnkOuter != IntPtr.Zero) return CLASS_E_NOAGGREGATION;
+
+        // Mint a fresh activator per CreateInstance — they are cheap and
+        // stateless aside from the static Invoked event. The shell will
+        // QueryInterface this for INotificationActivationCallback right after.
+        var activator = new MeridianToastActivator();
+        var ccw = ToastActivatorHost.Wrappers!
+            .GetOrCreateComInterfaceForObject(activator, CreateComInterfaceFlags.None);
+        try
+        {
+            var hr = Marshal.QueryInterface(ccw, riid, out ppv);
+            return hr;
+        }
+        finally
+        {
+            Marshal.Release(ccw);
+        }
+    }
+
+    public int LockServer(bool fLock) => 0;
+}
+
 // Owns the lifecycle of the COM class object registration. EnsureRegistered
-// is called at startup; the registration cookie is kept alive for the
-// duration of the process via the static field.
+// is called at startup; the registration cookie and the CCW IntPtr are kept
+// alive for the duration of the process via static fields.
 internal static partial class ToastActivatorHost
 {
     private const uint CLSCTX_LOCAL_SERVER = 0x4;
@@ -109,30 +159,33 @@ internal static partial class ToastActivatorHost
     private const uint REGCLS_SUSPENDED  = 0x4;
 
     private static uint _cookie;
-    private static StrategyBasedComWrappers? _wrappers;
-    private static MeridianToastActivator? _instance;
+    private static MeridianActivatorFactory? _factory;
+    // Strong refs kept for the life of the process. CoRegisterClassObject
+    // AddRefs internally, but under StrategyBasedComWrappers on .NET 10
+    // releasing _factoryCcw lets the CCW become collectible — subsequent
+    // QueryInterface from the shell returns nothing and warm activation
+    // silently fails.
+    private static IntPtr _factoryCcw;
+
+    // Exposed so MeridianActivatorFactory can mint activator CCWs through
+    // the same wrappers instance (and thus share marshalling configuration).
+    internal static StrategyBasedComWrappers? Wrappers { get; private set; }
 
     public static void EnsureRegistered()
     {
         if (_cookie != 0) return;
         try
         {
-            _wrappers = new StrategyBasedComWrappers();
-            _instance = new MeridianToastActivator();
-            var unk = _wrappers.GetOrCreateComInterfaceForObject(_instance, CreateComInterfaceFlags.None);
-            try
-            {
-                var clsid = ToastActivatorIds.Clsid;
-                Marshal.ThrowExceptionForHR(
-                    CoRegisterClassObject(ref clsid, unk, CLSCTX_LOCAL_SERVER,
-                        REGCLS_MULTIPLEUSE | REGCLS_SUSPENDED, out _cookie));
-                Marshal.ThrowExceptionForHR(CoResumeClassObjects());
-                Log.Write("Toast", $"activator class registered cookie={_cookie}");
-            }
-            finally
-            {
-                Marshal.Release(unk);
-            }
+            Wrappers = new StrategyBasedComWrappers();
+            _factory = new MeridianActivatorFactory();
+            _factoryCcw = Wrappers.GetOrCreateComInterfaceForObject(_factory, CreateComInterfaceFlags.None);
+
+            var clsid = ToastActivatorIds.Clsid;
+            Marshal.ThrowExceptionForHR(
+                CoRegisterClassObject(ref clsid, _factoryCcw, CLSCTX_LOCAL_SERVER,
+                    REGCLS_MULTIPLEUSE | REGCLS_SUSPENDED, out _cookie));
+            Marshal.ThrowExceptionForHR(CoResumeClassObjects());
+            Log.Write("Toast", $"activator factory registered cookie={_cookie} ccw=0x{_factoryCcw:x}");
         }
         catch (Exception ex)
         {

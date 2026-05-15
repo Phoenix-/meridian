@@ -45,8 +45,11 @@
                     </Grid>
                 </Button>
                 <Button x:Name="BtnTestToast" Content="&#xEA8F;" FontFamily="Segoe MDL2 Assets"
-                        Click="OnTestToastClick"
-                        ToolTipService.ToolTip="Тестовый тост через 30 секунд"/>
+                        Click="OnTestToastClick" Visibility="Collapsed"
+                        ToolTipService.ToolTip="Тестовый тост через 3 секунды (Show)"/>
+                <Button x:Name="BtnTestScheduled" Content="&#xE823;" FontFamily="Segoe MDL2 Assets"
+                        Click="OnTestScheduledClick" Visibility="Collapsed"
+                        ToolTipService.ToolTip="Тестовый отложенный тост через 30 секунд (AddToSchedule)"/>
                 <Button x:Name="BtnAccounts" Content="&#xE77B;" FontFamily="Segoe MDL2 Assets"
                         ToolTipService.ToolTip="Аккаунты">
                     <Button.Flyout>
