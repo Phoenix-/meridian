@@ -15,14 +15,33 @@ public sealed class JsonEventStore : IEventStore
 
     public YearCacheData? Load(AccountId account, string calendarId, int year)
     {
+        var path = FilePath(account, calendarId, year);
         try
         {
-            var path = FilePath(account, calendarId, year);
             if (!File.Exists(path)) return null;
-            using var stream = File.OpenRead(path);
-            return JsonSerializer.Deserialize(stream, StoreJsonContext.Default.YearCacheData);
+            YearCacheData? data;
+            using (var stream = File.OpenRead(path))
+                data = JsonSerializer.Deserialize(stream, StoreJsonContext.Default.YearCacheData);
+
+            if (data is null) return null;
+            if (data.SchemaVersion != YearCacheData.CurrentSchemaVersion)
+            {
+                // Stale schema — drop the file so the next sync writes a fresh
+                // copy with the current shape. Old data could pretend to be
+                // good (e.g. ReminderMinutes silently null on v1) and never
+                // self-correct via incremental sync.
+                TryDelete(path);
+                return null;
+            }
+            return data;
         }
-        catch { return null; }
+        catch
+        {
+            // Corrupt/unreadable file is the same as a cache miss; remove so
+            // we don't keep hitting it on every load.
+            TryDelete(path);
+            return null;
+        }
     }
 
     public void Save(YearCacheData data)
@@ -31,10 +50,17 @@ public sealed class JsonEventStore : IEventStore
         {
             Directory.CreateDirectory(CacheDir);
             data.SavedAtUtc = DateTime.UtcNow;
+            data.SchemaVersion = YearCacheData.CurrentSchemaVersion;
             var account = AccountId.Parse(data.AccountId);
             using var stream = File.Create(FilePath(account, data.CalendarId, data.Year));
             JsonSerializer.Serialize(stream, data, StoreJsonContext.Default.YearCacheData);
         }
+        catch { }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); }
         catch { }
     }
 

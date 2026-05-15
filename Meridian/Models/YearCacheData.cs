@@ -6,8 +6,23 @@ namespace Meridian.Models;
 // SyncToken is opaque and tied to the window [WindowStartUtc, WindowEndUtc) used
 // at initial sync. If the window changes, the token is invalid and a fresh
 // initial sync is required.
+//
+// SchemaVersion guards us against silently using stale on-disk events when the
+// shape or fill-rules of a field change. The store treats a mismatch as a
+// cache miss (the file is also deleted) and the next sync rewrites it from
+// scratch. Bump when:
+//   * a new field on CalendarEvent depends on data the previous build didn't
+//     fetch (e.g. v2 added ReminderMinutes derived from calendar defaults +
+//     the reminders block — old caches have it null for ~all events).
+//   * an existing field changes semantics in a way old data can't be migrated.
 public sealed class YearCacheData
 {
+    // Current schema (see comment above). Stored explicitly so a future
+    // change to the constant invalidates existing caches on startup.
+    public const int CurrentSchemaVersion = 2;
+
+    public int SchemaVersion { get; set; }
+
     public string AccountId { get; set; } = "";   // "provider:email"
     public string CalendarId { get; set; } = "";
     public int Year { get; set; }

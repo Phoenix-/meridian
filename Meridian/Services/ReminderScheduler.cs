@@ -11,26 +11,62 @@ namespace Meridian.Services;
 // platform's ScheduledToastNotification — survives app close (the WNP
 // platform itself fires the toast at the requested time).
 //
+// Strategy: reconcile, not teardown-and-rebuild. Every pass compares "desired"
+// (what events in the cache say we should have scheduled) against "actual"
+// (what WNP currently holds in its scheduled queue), and only removes the
+// extras and adds the missing. This costs the same as a full rebuild on the
+// first pass but on subsequent passes it touches almost nothing — and, more
+// importantly, it self-heals from drift: a toast that WNP silently dropped
+// (storage wipe, account-data cleanup, OS update) gets re-added on the next
+// pass instead of staying missing forever.
+//
+// Triggers:
+//   * DataRefreshed from the cache — events changed, definitely need to look.
+//   * A 5-minute timer — periodic drift check; cheap (one local WNP call).
+//   * An initial Reschedule() after the host wires us up.
+//
 // Design choices:
 //   * Popup reminders only. Email reminders are delivered by Google itself.
 //   * All-day events are skipped: Google's "1 day before 09:00" default
 //     would drown us in low-signal alerts on a typical calendar.
-//   * Tag/Group derived from a stable per-event-instance key so a re-schedule
-//     replaces an entry instead of duplicating it.
+//   * The reconcile key (Tag) hashes event id + minutes + start + title — so
+//     a moved or renamed event invalidates its old entry and re-schedules.
 internal sealed class ReminderScheduler
 {
     private static readonly TimeSpan Horizon = TimeSpan.FromHours(48);
-    private static readonly TimeSpan SkipPastMargin = TimeSpan.FromSeconds(5);
+    // How long after fireAt we still consider an entry "desired". Set to the
+    // toast ExpirationTime window (Start + 1h) so reconcile doesn't remove an
+    // entry that WNP is about to deliver. Without this, a reconcile that
+    // happens between fireAt-5s and fireAt would race the WNP firing and
+    // sometimes win — silently swallowing the toast.
+    private static readonly TimeSpan PastGrace = TimeSpan.FromHours(1);
+    private static readonly TimeSpan ReconcileInterval = TimeSpan.FromMinutes(5);
+    // How far into the past we still surface a missed reminder. Wider than
+    // PastGrace because the missed-reminder flow is for "laptop was closed
+    // when this event fired" — useful for a few days, irrelevant after a week.
+    private static readonly TimeSpan MissedWindow = TimeSpan.FromDays(7);
+    // Maximum number of individual entries listed inside the summary toast
+    // body. The full count still shows in the title.
+    private const int MissedPreviewCount = 3;
     private const string GroupPrefix = "mrd-";
+    private const string MissedGroup = "mrd-missed";
 
     private readonly CalendarCache _events;
     private readonly DispatcherQueue _dispatcher;
+    private readonly DispatcherQueueTimer _timer;
+    private readonly MissedRemindersTracker _missed = new();
 
     public ReminderScheduler(CalendarCache events, DispatcherQueue dispatcher)
     {
         _events = events;
         _dispatcher = dispatcher;
         _events.DataRefreshed += _ => Reschedule();
+
+        _timer = _dispatcher.CreateTimer();
+        _timer.Interval = ReconcileInterval;
+        _timer.IsRepeating = true;
+        _timer.Tick += (_, _) => RescheduleCore();
+        _timer.Start();
     }
 
     public void Reschedule() => _dispatcher.TryEnqueue(RescheduleCore);
@@ -47,30 +83,15 @@ internal sealed class ReminderScheduler
         {
             var now = DateTime.Now;
             var horizon = now + Horizon;
-            var events = _events.SnapshotRange(now, horizon);
+            // Pull in past events too — the missed-reminder pass below needs
+            // them. SnapshotRange uses inclusive-start, exclusive-end semantics
+            // on event windows, so include anything that started in the last
+            // MissedWindow.
+            var events = _events.SnapshotRange(now - MissedWindow, horizon);
 
-            var desiredByAccount =
-                new Dictionary<string, List<(DateTime FireAt, CalendarEvent Event, int Minutes)>>();
-            int total = events.Count, allDay = 0, noRem = 0, noEmail = 0;
-
-            foreach (var e in events)
-            {
-                if (e.IsAllDay) { allDay++; continue; }
-                if (e.ReminderMinutes is not { Count: > 0 }) { noRem++; continue; }
-                if (string.IsNullOrEmpty(e.AccountEmail)) { noEmail++; continue; }
-
-                foreach (var minutes in e.ReminderMinutes)
-                {
-                    var fireAt = e.Start.AddMinutes(-minutes);
-                    if (fireAt <= now + SkipPastMargin) continue;
-                    if (fireAt > horizon) continue;
-
-                    if (!desiredByAccount.TryGetValue(e.AccountEmail, out var list))
-                        desiredByAccount[e.AccountEmail] = list = [];
-                    list.Add((fireAt, e, minutes));
-                }
-            }
-
+            // ── Read actual set from WNP (needed before classifying past
+            //    fire-times: "WNP has it queued" → leave alone; "WNP doesn't"
+            //    → it's missed). ──────────────────────────────────────────────
             ToastNotifier notifier;
             try
             {
@@ -82,33 +103,130 @@ internal sealed class ReminderScheduler
                 return;
             }
 
-            int sched = 0, schedFail = 0;
-            foreach (var (email, list) in desiredByAccount)
+            var actual = new Dictionary<string, ScheduledToastNotification>(StringComparer.Ordinal);
+            try
             {
-                var group = GroupFor(email);
-                ClearScheduledGroup(group, notifier);
-
-                foreach (var (fireAt, ev, minutes) in list)
+                foreach (var st in notifier.GetScheduledToastNotifications())
                 {
-                    try
+                    if (st.Group is null || !st.Group.StartsWith(GroupPrefix, StringComparison.Ordinal)) continue;
+                    actual[st.Tag ?? ""] = st;
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Toast", ex, "GetScheduledToastNotifications");
+                return;
+            }
+
+            // ── Compute desired and missed sets ──────────────────────────────
+            var desired = new Dictionary<string, DesiredEntry>(StringComparer.Ordinal);
+            // Dedupe missed entries by event (not by reminder): a single event
+            // with reminders at -10/-0 produces one catch-up toast, not two.
+            // Pick the earliest-fireAt past reminder as the representative —
+            // it carries the most signal ("you should have known 10 min ahead,
+            // not just at start"). Per-event dedupe key matches the missed
+            // tracker's storage key (event-stable, no minutes).
+            var missedByEvent = new Dictionary<string, MissedEntry>(StringComparer.Ordinal);
+            int total = events.Count, allDay = 0, noRem = 0, noEmail = 0;
+
+            foreach (var e in events)
+            {
+                if (e.IsAllDay) { allDay++; continue; }
+                if (e.ReminderMinutes is not { Count: > 0 }) { noRem++; continue; }
+                if (string.IsNullOrEmpty(e.AccountEmail)) { noEmail++; continue; }
+
+                var eventKey = EventKey(e);
+
+                foreach (var minutes in e.ReminderMinutes)
+                {
+                    var fireAt = e.Start.AddMinutes(-minutes);
+                    if (fireAt > horizon) continue;
+
+                    var tag = TagFor(e, minutes);
+
+                    if (fireAt > now)
                     {
-                        var toast = BuildScheduledToast(ev, minutes, fireAt, group);
-                        notifier.AddToSchedule(toast);
-                        sched++;
-                        Log.Write("Toast",
-                            $"  + scheduled '{ev.Title}' fireAt={fireAt:yyyy-MM-dd HH:mm} (minus {minutes}min)");
+                        // Future fireAt — normal scheduling path. A future
+                        // reminder for an event whose earlier reminder is
+                        // already missed is unrelated: WNP will still deliver
+                        // it on time.
+                        desired[tag] = new DesiredEntry(e, minutes, fireAt, GroupFor(e.AccountEmail));
+                        continue;
                     }
-                    catch (Exception ex)
+
+                    // Past fireAt.
+                    if (actual.ContainsKey(tag) && fireAt > now - PastGrace)
                     {
-                        schedFail++;
-                        Log.Error("Toast", ex, $"AddToSchedule '{ev.Title}'");
+                        // WNP has the toast queued and we're inside the grace
+                        // window — leave it alone, WNP is about to (or just
+                        // did) deliver. Keep it in desired so reconcile won't
+                        // remove it.
+                        desired[tag] = new DesiredEntry(e, minutes, fireAt, GroupFor(e.AccountEmail));
+                        continue;
                     }
+
+                    if (fireAt <= now - MissedWindow) continue;
+                    if (_missed.WasShown(eventKey)) continue;
+
+                    // Pick the earliest unmet reminder as the event's
+                    // representative — that's the one with the most lead-time
+                    // signal value.
+                    if (!missedByEvent.TryGetValue(eventKey, out var existing) || fireAt < existing.FireAt)
+                        missedByEvent[eventKey] = new MissedEntry(eventKey, e, minutes, fireAt);
                 }
             }
 
-            Log.Write("Toast",
-                $"reschedule: events={total} allday={allDay} noRem={noRem} noEmail={noEmail} " +
-                $"scheduled(ok={sched} fail={schedFail})");
+            var missed = missedByEvent.Values.ToList();
+
+            // ── Diff and apply ───────────────────────────────────────────────
+            int added = 0, removed = 0, kept = 0, failed = 0;
+
+            foreach (var (tag, st) in actual)
+            {
+                if (desired.ContainsKey(tag)) continue;
+                try { notifier.RemoveFromSchedule(st); removed++; }
+                catch (Exception ex) { Log.Error("Toast", ex, $"RemoveFromSchedule tag={tag}"); }
+            }
+
+            foreach (var (tag, d) in desired)
+            {
+                if (actual.ContainsKey(tag)) { kept++; continue; }
+                // If the entry is desired (within PastGrace) but already past
+                // its fire time and not present in WNP's queue, WNP will
+                // refuse to schedule it — skip to avoid log noise.
+                if (d.FireAt <= now) continue;
+                try
+                {
+                    var toast = BuildScheduledToast(d.Event, d.Minutes, d.FireAt, d.Group, tag);
+                    notifier.AddToSchedule(toast);
+                    added++;
+                    Log.Write("Toast",
+                        $"  + scheduled '{d.Event.Title}' fireAt={d.FireAt:yyyy-MM-dd HH:mm} (minus {d.Minutes}min)");
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    Log.Error("Toast", ex, $"AddToSchedule '{d.Event.Title}'");
+                }
+            }
+
+            // Quieter log line when nothing changed — periodic timer ticks would
+            // otherwise spam the log every 5 minutes with no signal.
+            if (added > 0 || removed > 0 || failed > 0)
+            {
+                Log.Write("Toast",
+                    $"reconcile: events={total} allday={allDay} noRem={noRem} noEmail={noEmail} " +
+                    $"desired={desired.Count} actual={actual.Count} " +
+                    $"added={added} removed={removed} kept={kept} failed={failed}");
+            }
+
+            // ── Missed-reminder catch-up ─────────────────────────────────────
+            // Reminders we only just learned about (sync was slow / app was
+            // closed) but whose fire-time has already passed get aggregated
+            // into a single "you missed N reminders" toast. The tracker
+            // dedupes against future passes.
+            if (missed.Count > 0)
+                ShowMissedSummary(notifier, missed);
         }
         catch (Exception ex)
         {
@@ -116,8 +234,69 @@ internal sealed class ReminderScheduler
         }
     }
 
+    private void ShowMissedSummary(ToastNotifier notifier, List<MissedEntry> missed)
+    {
+        // Most-recent-first — the freshest pass is the most likely to still
+        // matter to the user. Preview is capped; the full count goes in the
+        // headline.
+        missed.Sort((a, b) => b.FireAt.CompareTo(a.FireAt));
+
+        var title = missed.Count == 1
+            ? $"Пропущенное напоминание: {missed[0].Event.Title}"
+            : $"Пропущено {missed.Count} напоминаний";
+
+        var bodyLines = new List<string>();
+        foreach (var m in missed.Take(MissedPreviewCount))
+            bodyLines.Add($"{m.FireAt:HH:mm} · {m.Event.Title}");
+        if (missed.Count > MissedPreviewCount)
+            bodyLines.Add($"…и ещё {missed.Count - MissedPreviewCount}");
+        var body = string.Join('\n', bodyLines);
+
+        // Launch arg: take the most-recent missed reminder's date so a click
+        // jumps to that day in the calendar. Slight bias, but better than no
+        // navigation at all for the aggregate case.
+        var launchDate = missed[0].Event.Start;
+
+        var xml = new XmlDocument();
+        xml.LoadXml(
+            $"""
+            <toast launch="{Xml($"date={launchDate:yyyy-MM-dd}")}">
+              <visual>
+                <binding template="ToastGeneric">
+                  <text>{Xml(title)}</text>
+                  <text>{Xml(body)}</text>
+                </binding>
+              </visual>
+            </toast>
+            """);
+
+        try
+        {
+            notifier.Show(new ToastNotification(xml)
+            {
+                Tag = "missed-" + DateTime.UtcNow.Ticks.ToString("x"),
+                Group = MissedGroup,
+            });
+            _missed.MarkShown(missed.Select(m => m.Key));
+            Log.Write("Toast", $"missed: surfaced {missed.Count} reminders (preview: '{title}')");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Toast", ex, "ShowMissedSummary");
+        }
+    }
+
+    private readonly record struct DesiredEntry(
+        CalendarEvent Event, int Minutes, DateTime FireAt, string Group);
+
+    // Key is the per-event dedupe key (EventKey), not a per-reminder tag —
+    // a single event surfaces once regardless of how many of its reminders
+    // were missed.
+    private readonly record struct MissedEntry(
+        string Key, CalendarEvent Event, int Minutes, DateTime FireAt);
+
     private static ScheduledToastNotification BuildScheduledToast(
-        CalendarEvent e, int minutes, DateTime fireAt, string group)
+        CalendarEvent e, int minutes, DateTime fireAt, string group, string tag)
     {
         var when = e.Start.ToString("HH:mm");
         var leadIn = minutes <= 0
@@ -147,7 +326,7 @@ internal sealed class ReminderScheduler
 
         return new ScheduledToastNotification(xml, new DateTimeOffset(fireAt))
         {
-            Tag = TagFor(e, minutes),
+            Tag = tag,
             Group = group,
             ExpirationTime = new DateTimeOffset(e.Start.AddHours(1)),
         };
@@ -172,8 +351,18 @@ internal sealed class ReminderScheduler
 
     private static string GroupFor(string email) => GroupPrefix + Hash(email);
 
+    // Tag includes event-content fields that, when they change, should
+    // invalidate the existing schedule entry — title (visible in the toast),
+    // start (drives fireAt + the body's "at HH:mm"). minutes lives in the
+    // key because Google may issue several reminders per event.
     private static string TagFor(CalendarEvent e, int minutes) =>
-        Hash($"{e.Id}:{minutes}");
+        Hash($"{e.Id}:{minutes}:{e.Start:O}:{e.Title}");
+
+    // Per-event key for missed-reminder dedupe. Stable across the set of
+    // reminders on an event — so re-running the catch-up after a tweak to
+    // reminder offsets doesn't re-surface the same event.
+    private static string EventKey(CalendarEvent e) =>
+        Hash($"event:{e.Id}:{e.Start:O}:{e.Title}");
 
     // 32-bit FNV-1a, 8 hex chars. Tag and Group were historically capped at
     // 16 chars on early Win10 builds; an 8-char hash keeps headroom while

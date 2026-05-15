@@ -313,11 +313,18 @@ public sealed class GoogleApiClient(AccountId id)
 
     // Returns the popup-method reminder minutes to attach to an event. Returns
     // null when there are no popup reminders so the scheduler can skip cheaply.
+    //
+    // Google's contract: the `reminders` block is optional. When absent, the
+    // event uses the calendar defaults — same as `{useDefault: true}`. In
+    // practice the API omits the block for the overwhelming majority of
+    // events, so missing-block must fall through to defaults, not to "no
+    // reminders". Treating absent-block as no-reminders was a long-standing
+    // bug that silently swallowed the calendar defaults for ~570/570 events
+    // on the author's account.
     private static List<int>? ResolveReminderMinutes(
         ReminderInfo? reminders, IReadOnlyList<int>? defaultPopupMinutes)
     {
-        if (reminders is null) return null;
-        if (reminders.UseDefault == true)
+        if (reminders is null || reminders.UseDefault == true)
             return defaultPopupMinutes is { Count: > 0 } d ? [..d] : null;
         return ExtractPopupMinutes(reminders.Overrides);
     }
