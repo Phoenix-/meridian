@@ -205,8 +205,12 @@ internal static partial class ToastSetup
 
         var existing = key.GetValue(null) as string;
         // The shell appends arbitrary RPC arguments after the path, so the
-        // command line must be in quotes. Single set, written verbatim.
-        var desired = $"\"{exePath}\"";
+        // command line must be in quotes. The "-ToastActivated" sentinel
+        // mirrors CommunityToolkit's convention: lets Program.Main tell a
+        // shell-spawned toast launch from a normal user launch (we don't act
+        // on it yet, but it's cheap to register and would let us skip the UI
+        // on cold-start activation in the future).
+        var desired = $"\"{exePath}\" -ToastActivated";
         if (!string.Equals(existing, desired, StringComparison.OrdinalIgnoreCase))
             key.SetValue(null, desired);
     }
@@ -280,36 +284,42 @@ internal static partial class ToastSetup
     // We tried reading the property store two ways: via fresh-ShellLink+Load
     // and via SHGetPropertyStoreFromParsingName. Both returned VT_EMPTY for
     // AUMID on Win11 26200 even though the property is present in the on-disk
-    // bytes (confirmed with hex dump and WScript.Shell). Whatever shell quirk
-    // this is, we cannot rely on it for the steady-state check.
+    // bytes (confirmed with hex dump and WScript.Shell).
     //
     // Pragmatic fallback: check the legacy target path via IShellLink.GetPath
     // (which does work), then byte-scan the file for our AUMID UTF-16 string
     // and the binary GUID layout of our ToastActivatorCLSID. If both signatures
     // are present in the right file, we own it. Collision risk is negligible
     // — the AUMID is unique to this app and the CLSID even more so.
+    //
+    // All COM work goes through raw vtable thunks: NativeAOT removed the
+    // built-in CLR marshaller, so Marshal.GetObjectForIUnknown on an
+    // [ComImport] interface throws "COM Interop requires ComWrapper instance
+    // registered for marshalling." Direct vtable invocation needs no wrapper.
     private static bool ShortcutMatches(string shortcutPath, string exePath)
     {
         // ── path check via classic ShellLink ─────────────────────────────────
-        IntPtr pUnk = IntPtr.Zero;
-        IShellLinkW? link = null;
-        IPersistFile? pf = null;
+        IntPtr pLink = IntPtr.Zero, pPersist = IntPtr.Zero, pBuf = IntPtr.Zero;
         try
         {
             var clsid = CLSID_ShellLink;
             var iidShellLink = IID_IShellLinkW;
             var hr = CoCreateInstance(ref clsid, IntPtr.Zero, CLSCTX_INPROC_SERVER,
-                                       ref iidShellLink, out pUnk);
+                                       ref iidShellLink, out pLink);
             if (hr < 0) { Log.Write("Toast", $"match: CoCreate failed 0x{hr:x8}"); return false; }
 
-            link = (IShellLinkW)Marshal.GetObjectForIUnknown(pUnk);
-            pf = (IPersistFile)link;
-            try { pf.Load(shortcutPath, 0); }
-            catch (Exception ex) { Log.Write("Toast", $"match: Load failed: {ex.Message}"); return false; }
+            var iidPersistFile = IID_IPersistFile;
+            hr = Marshal.QueryInterface(pLink, in iidPersistFile, out pPersist);
+            if (hr < 0) { Log.Write("Toast", $"match: QI IPersistFile failed 0x{hr:x8}"); return false; }
 
-            var sb = new StringBuilder(260);
-            link.GetPath(sb, sb.Capacity, IntPtr.Zero, 0);
-            var gotPath = sb.ToString();
+            hr = InvokePersistFileLoad(pPersist, shortcutPath, 0);
+            if (hr < 0) { Log.Write("Toast", $"match: IPersistFile.Load hr=0x{hr:x8}"); return false; }
+
+            const int bufLen = 260;
+            pBuf = Marshal.AllocCoTaskMem(bufLen * 2); // wide chars
+            hr = InvokeShellLinkGetPath(pLink, pBuf, bufLen);
+            if (hr < 0) { Log.Write("Toast", $"match: GetPath hr=0x{hr:x8}"); return false; }
+            var gotPath = Marshal.PtrToStringUni(pBuf) ?? "";
             if (!string.Equals(gotPath, exePath, StringComparison.OrdinalIgnoreCase))
             {
                 Log.Write("Toast", $"match: path mismatch got='{gotPath}' want='{exePath}'");
@@ -323,9 +333,9 @@ internal static partial class ToastSetup
         }
         finally
         {
-            if (pf != null) Marshal.ReleaseComObject(pf);
-            if (link != null) Marshal.ReleaseComObject(link);
-            if (pUnk != IntPtr.Zero) Marshal.Release(pUnk);
+            if (pBuf != IntPtr.Zero) Marshal.FreeCoTaskMem(pBuf);
+            if (pPersist != IntPtr.Zero) Marshal.Release(pPersist);
+            if (pLink != IntPtr.Zero) Marshal.Release(pLink);
         }
 
         // ── binary signature check ───────────────────────────────────────────
@@ -352,7 +362,6 @@ internal static partial class ToastSetup
                 return false;
             }
 
-            Log.Write("Toast", "match: ok");
             return true;
         }
         catch (Exception ex)
@@ -390,38 +399,47 @@ internal static partial class ToastSetup
 
     private static void WriteShortcut(string shortcutPath, string exePath)
     {
-        // We deliberately stay at the IUnknown* level and call IPropertyStore
-        // vtable slots through function-pointer thunks. Going through the CLR
-        // [ComImport] IPropertyStore RCW means the runtime marshals our
-        // PROPVARIANT struct as if it were OLE VARIANT, which produces a
-        // shortcut that Shell silently ignores (no AUMID stored). Observed on
-        // Win11 26200: ps.SetValue returns S_OK but the property never lands
-        // in the file. Direct vtable invocation bypasses that variant coercion.
-        IntPtr pUnk = IntPtr.Zero, pStore = IntPtr.Zero;
-        IShellLinkW? link = null;
-        IPersistFile? pf = null;
+        // Everything via raw vtable thunks: NativeAOT removed the built-in CLR
+        // marshaller so Marshal.GetObjectForIUnknown on [ComImport] interfaces
+        // throws. Going through IPropertyStore via a CLR RCW also corrupts
+        // PROPVARIANT (it marshals as OLE VARIANT). Direct vtable invocation
+        // dodges both problems.
+        IntPtr pLink = IntPtr.Zero, pStore = IntPtr.Zero, pPersist = IntPtr.Zero;
         PROPVARIANT pv = default;
         bool pvOwned = false;
+        string step = "init";
         try
         {
-            // Create the ShellLink coclass and grab IShellLinkW + IPropertyStore
-            // from the same instance.
             var clsid = CLSID_ShellLink;
             var iidShellLink = IID_IShellLinkW;
             var iidPropertyStore = IID_IPropertyStore;
-            Marshal.ThrowExceptionForHR(
-                CoCreateInstance(ref clsid, IntPtr.Zero, CLSCTX_INPROC_SERVER, ref iidShellLink, out pUnk));
-            link = (IShellLinkW)Marshal.GetObjectForIUnknown(pUnk);
-            Marshal.ThrowExceptionForHR(Marshal.QueryInterface(pUnk, in iidPropertyStore, out pStore));
+            var iidPersistFile = IID_IPersistFile;
 
-            link.SetPath(exePath);
+            step = "CoCreate(ShellLink)";
+            Marshal.ThrowExceptionForHR(
+                CoCreateInstance(ref clsid, IntPtr.Zero, CLSCTX_INPROC_SERVER, ref iidShellLink, out pLink));
+
+            step = "QI(IPropertyStore)";
+            Marshal.ThrowExceptionForHR(Marshal.QueryInterface(pLink, in iidPropertyStore, out pStore));
+
+            step = "QI(IPersistFile)";
+            Marshal.ThrowExceptionForHR(Marshal.QueryInterface(pLink, in iidPersistFile, out pPersist));
+
+            step = "SetPath";
+            Marshal.ThrowExceptionForHR(InvokeShellLinkSetPath(pLink, exePath));
             var dir = Path.GetDirectoryName(exePath);
-            if (!string.IsNullOrEmpty(dir)) link.SetWorkingDirectory(dir);
-            link.SetDescription(DisplayName);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                step = "SetWorkingDirectory";
+                Marshal.ThrowExceptionForHR(InvokeShellLinkSetWorkingDirectory(pLink, dir));
+            }
+            step = "SetDescription";
+            Marshal.ThrowExceptionForHR(InvokeShellLinkSetDescription(pLink, DisplayName));
 
             // 1. AUMID (VT_LPWSTR). Write the PreferredAumid; the shell may
             // map it to a different runtime AUMID (see ResolvedAumid), but
             // what lands in the file is what we author here.
+            step = "SetValue(AUMID)";
             var keyAumid = PKEY_AppUserModel_ID;
             pv = MakeStringPropVariant(PreferredAumid);
             pvOwned = true;
@@ -434,6 +452,7 @@ internal static partial class ToastSetup
             // 2. ToastActivatorCLSID (VT_CLSID). Required for unpackaged apps:
             //    without this property Shell silently filters scheduled toasts
             //    and the AUMID never appears in Settings → Notifications.
+            step = "SetValue(ActivatorCLSID)";
             var keyActivator = PKEY_AppUserModel_ToastActivatorCLSID;
             pv = MakeClsidPropVariant(ToastActivatorIds.Clsid);
             pvOwned = true;
@@ -441,10 +460,11 @@ internal static partial class ToastSetup
             PropVariantClear(ref pv);
             pvOwned = false;
 
+            step = "Commit";
             Marshal.ThrowExceptionForHR(InvokeCommit(pStore));
 
-            pf = (IPersistFile)link;
-            pf.Save(shortcutPath, fRemember: true);
+            step = "Save";
+            Marshal.ThrowExceptionForHR(InvokePersistFileSave(pPersist, shortcutPath, fRemember: true));
 
             // Notify shell about the new/updated shortcut. Without this Windows
             // sometimes does not rescan AppUserModel properties on existing
@@ -455,13 +475,17 @@ internal static partial class ToastSetup
             try { SHChangeNotify(0x2, 0x1, pathPtr, IntPtr.Zero); }
             finally { Marshal.FreeCoTaskMem(pathPtr); }
         }
+        catch (Exception ex)
+        {
+            Log.Error("Toast", ex, $"WriteShortcut failed at step '{step}' (pLink=0x{pLink:x} pStore=0x{pStore:x} pPersist=0x{pPersist:x})");
+            throw;
+        }
         finally
         {
             if (pvOwned) PropVariantClear(ref pv);
-            if (pf != null) Marshal.ReleaseComObject(pf);
-            if (link != null) Marshal.ReleaseComObject(link);
+            if (pPersist != IntPtr.Zero) Marshal.Release(pPersist);
             if (pStore != IntPtr.Zero) Marshal.Release(pStore);
-            if (pUnk != IntPtr.Zero) Marshal.Release(pUnk);
+            if (pLink != IntPtr.Zero) Marshal.Release(pLink);
         }
     }
 
@@ -476,6 +500,73 @@ internal static partial class ToastSetup
         fixed (PROPERTYKEY* pKey = &key)
         fixed (PROPVARIANT* pVar = &pv)
             return fn(pStore, pKey, pVar);
+    }
+
+    // ── IShellLinkW raw vtable thunks ─────────────────────────────────────────
+    // Slot numbering after IUnknown (0–2):
+    //   3 GetPath, 6 GetDescription, 7 SetDescription, 8 GetWorkingDirectory,
+    //   9 SetWorkingDirectory, 20 SetPath.
+
+    private static unsafe int InvokeShellLinkGetPath(IntPtr pLink, IntPtr pszFileBuffer, int cchMax)
+    {
+        var vtbl = *(IntPtr**)pLink;
+        // HRESULT GetPath(LPWSTR pszFile, int cch, WIN32_FIND_DATAW* pfd, DWORD fFlags)
+        var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int, IntPtr, uint, int>)vtbl[3];
+        return fn(pLink, pszFileBuffer, cchMax, IntPtr.Zero, 0);
+    }
+
+    private static unsafe int InvokeShellLinkSetPath(IntPtr pLink, string path)
+    {
+        var vtbl = *(IntPtr**)pLink;
+        // HRESULT SetPath(LPCWSTR pszFile)
+        var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)vtbl[20];
+        var p = Marshal.StringToCoTaskMemUni(path);
+        try { return fn(pLink, p); }
+        finally { Marshal.FreeCoTaskMem(p); }
+    }
+
+    private static unsafe int InvokeShellLinkSetWorkingDirectory(IntPtr pLink, string dir)
+    {
+        var vtbl = *(IntPtr**)pLink;
+        // HRESULT SetWorkingDirectory(LPCWSTR pszDir)
+        var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)vtbl[9];
+        var p = Marshal.StringToCoTaskMemUni(dir);
+        try { return fn(pLink, p); }
+        finally { Marshal.FreeCoTaskMem(p); }
+    }
+
+    private static unsafe int InvokeShellLinkSetDescription(IntPtr pLink, string description)
+    {
+        var vtbl = *(IntPtr**)pLink;
+        // HRESULT SetDescription(LPCWSTR pszName)
+        var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int>)vtbl[7];
+        var p = Marshal.StringToCoTaskMemUni(description);
+        try { return fn(pLink, p); }
+        finally { Marshal.FreeCoTaskMem(p); }
+    }
+
+    // ── IPersistFile raw vtable thunks ────────────────────────────────────────
+    // Inherits IPersist (slot 3: GetClassID). IPersistFile-specific:
+    //   4 IsDirty, 5 Load, 6 Save, 7 SaveCompleted, 8 GetCurFile.
+
+    private static unsafe int InvokePersistFileLoad(IntPtr pPersist, string path, uint mode)
+    {
+        var vtbl = *(IntPtr**)pPersist;
+        // HRESULT Load(LPCOLESTR pszFileName, DWORD dwMode)
+        var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, uint, int>)vtbl[5];
+        var p = Marshal.StringToCoTaskMemUni(path);
+        try { return fn(pPersist, p, mode); }
+        finally { Marshal.FreeCoTaskMem(p); }
+    }
+
+    private static unsafe int InvokePersistFileSave(IntPtr pPersist, string path, bool fRemember)
+    {
+        var vtbl = *(IntPtr**)pPersist;
+        // HRESULT Save(LPCOLESTR pszFileName, BOOL fRemember)
+        var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int, int>)vtbl[6];
+        var p = Marshal.StringToCoTaskMemUni(path);
+        try { return fn(pPersist, p, fRemember ? 1 : 0); }
+        finally { Marshal.FreeCoTaskMem(p); }
     }
 
     private static unsafe int InvokeCommit(IntPtr pStore)
@@ -505,24 +596,6 @@ internal static partial class ToastSetup
         return new PROPVARIANT { vt = VT_CLSID, p = ptr };
     }
 
-    // AOT-safe activation: CoCreateInstance returns a raw IUnknown that we
-    // wrap into an RCW. Avoids the [ComImport] coclass + Activator path.
-    private static IShellLinkW CreateShellLink()
-    {
-        var clsid = CLSID_ShellLink;
-        var iid = IID_IShellLinkW;
-        Marshal.ThrowExceptionForHR(
-            CoCreateInstance(ref clsid, IntPtr.Zero, CLSCTX_INPROC_SERVER, ref iid, out var ptr));
-        try
-        {
-            return (IShellLinkW)Marshal.GetObjectForIUnknown(ptr);
-        }
-        finally
-        {
-            Marshal.Release(ptr);
-        }
-    }
-
     // ── P/Invoke + COM ────────────────────────────────────────────────────────
 
     [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
@@ -533,6 +606,7 @@ internal static partial class ToastSetup
     private static Guid CLSID_ShellLink = new("00021401-0000-0000-C000-000000000046");
     private static Guid IID_IShellLinkW = new("000214F9-0000-0000-C000-000000000046");
     private static readonly Guid IID_IPropertyStore = new("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
+    private static readonly Guid IID_IPersistFile   = new("0000010B-0000-0000-C000-000000000046");
 
     // Undocumented IApplicationResolver — the shell uses this internally to
     // map a shortcut to its AUMID. Stable since Windows 7. CLSID and IID from
@@ -549,42 +623,11 @@ internal static partial class ToastSetup
     private static partial int CoCreateInstance(
         ref Guid rclsid, IntPtr pUnkOuter, uint dwClsContext, ref Guid riid, out IntPtr ppv);
 
-    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"),
-     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IShellLinkW
-    {
-        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszFile,
-                     int cch, IntPtr pfd, int fFlags);
-        void GetIDList(out IntPtr ppidl);
-        void SetIDList(IntPtr pidl);
-        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszName, int cch);
-        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string pszName);
-        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszDir, int cch);
-        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string pszDir);
-        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszArgs, int cch);
-        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string pszArgs);
-        void GetHotkey(out short pwHotkey);
-        void SetHotkey(short wHotkey);
-        void GetShowCmd(out int piShowCmd);
-        void SetShowCmd(int iShowCmd);
-        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszIconPath,
-                             int cch, out int piIcon);
-        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string pszIconPath, int iIcon);
-        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string pszPathRel, int dwReserved);
-        void Resolve(IntPtr hwnd, int fFlags);
-        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);
-    }
-
-    [ComImport, Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99"),
-     InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    private interface IPropertyStore
-    {
-        void GetCount(out uint cProps);
-        void GetAt(uint iProp, out PROPERTYKEY pkey);
-        void GetValue(ref PROPERTYKEY key, out PROPVARIANT pv);
-        void SetValue(ref PROPERTYKEY key, ref PROPVARIANT pv);
-        void Commit();
-    }
+    // [ComImport] interface declarations were removed when we moved every call
+    // to raw vtable thunks for AOT compatibility. The vtable slot numbers in
+    // the Invoke* helpers above are the canonical source of truth now; if you
+    // need to extend coverage, the offical IDL is in shobjidl_core.h (shell32)
+    // and objidl.h (ole32). IIDs are kept just below as Guid constants.
 
     [StructLayout(LayoutKind.Sequential, Pack = 4)]
     private struct PROPERTYKEY
@@ -593,10 +636,12 @@ internal static partial class ToastSetup
         public uint pid;
     }
 
-    // Win32 PROPVARIANT is a 16-byte union: 2-byte vt + 6 bytes of padding/
-    // reserved fields, then an 8-byte union body. We only care about VT_LPWSTR,
-    // whose payload (an LPWSTR pointer) lives at offset 8.
-    [StructLayout(LayoutKind.Explicit, Size = 16)]
+    // Win32 PROPVARIANT on x64 is 24 bytes: 2-byte vt + 6 bytes of padding/
+    // reserved fields + a 16-byte union body (large enough to hold a DECIMAL).
+    // We only care about VT_LPWSTR/VT_CLSID, whose payload (a pointer) lives
+    // at offset 8 — but Size MUST be 24 or SetValue's writes spill past our
+    // struct and corrupt the next stack slot.
+    [StructLayout(LayoutKind.Explicit, Size = 24)]
     private struct PROPVARIANT
     {
         [FieldOffset(0)] public ushort vt;

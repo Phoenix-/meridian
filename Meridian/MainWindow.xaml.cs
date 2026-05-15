@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls;
@@ -54,6 +55,18 @@ public sealed partial class MainWindow : Window
         MeridianToastActivator.Invoked += OnToastInvoked;
         Closed += (_, _) => MeridianToastActivator.Invoked -= OnToastInvoked;
 
+        // Diagnostic toast buttons stay hidden unless a marker file exists.
+        // Create `%APPDATA%\Meridian\diag.enabled` (empty file) to reveal
+        // them — useful for validating the toast pipeline on a new machine
+        // without juggling a real calendar event.
+        if (File.Exists(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Meridian", "diag.enabled")))
+        {
+            BtnTestToast.Visibility = Visibility.Visible;
+            BtnTestScheduled.Visibility = Visibility.Visible;
+        }
+
         _ = InitAsync();
     }
 
@@ -79,9 +92,18 @@ public sealed partial class MainWindow : Window
                 // Bring the window forward regardless of args. If we somehow
                 // get an empty/garbled launch we still want the user to land
                 // on the app rather than nothing happening.
+                //
+                // The foreground dance: SetForegroundWindow is locked unless
+                // our thread holds the privilege. ToastActivator.Activate
+                // forwarded it via AllowSetForegroundWindow on the COM thread,
+                // which covers the warm case. For cold-start (the new process
+                // has no foreground rights AT ALL — there's nothing to forward),
+                // we synthesize an ALT key event: SendInput counts as user
+                // input from this process and re-grants the UI thread the
+                // SetForegroundWindow right for one shot. Documented bypass,
+                // used by shipping Win32 apps for the same scenario.
                 var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
-                AppWindow.MoveInZOrderAtTop();
+                ForceForeground(hwnd);
 
                 if (targetDate is { } date)
                 {
@@ -95,6 +117,44 @@ public sealed partial class MainWindow : Window
                 Log.Error("Toast", ex, "OnToastInvoked");
             }
         });
+    }
+
+    // Defeats the foreground lock by synthesizing an ALT keystroke (which
+    // Windows counts as our-process user input and re-grants this thread the
+    // SetForegroundWindow privilege), then unminimizes if needed and pushes
+    // the window forward. Safe to call when we already have focus too —
+    // the synthetic ALT is consumed silently by the WM.
+    private static void ForceForeground(nint hwnd)
+    {
+        var inputs = new[]
+        {
+            new NativeMethods.INPUT
+            {
+                Type = NativeMethods.INPUT_KEYBOARD,
+                U = new NativeMethods.INPUTUNION
+                {
+                    Keyboard = new NativeMethods.KEYBDINPUT { Vk = NativeMethods.VK_MENU }
+                },
+            },
+            new NativeMethods.INPUT
+            {
+                Type = NativeMethods.INPUT_KEYBOARD,
+                U = new NativeMethods.INPUTUNION
+                {
+                    Keyboard = new NativeMethods.KEYBDINPUT
+                    {
+                        Vk = NativeMethods.VK_MENU,
+                        Flags = NativeMethods.KEYEVENTF_KEYUP,
+                    }
+                },
+            },
+        };
+        NativeMethods.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<NativeMethods.INPUT>());
+
+        if (NativeMethods.IsIconic(hwnd))
+            NativeMethods.ShowWindow(hwnd, NativeMethods.SW_RESTORE);
+        NativeMethods.SetForegroundWindow(hwnd);
+        NativeMethods.BringWindowToTop(hwnd);
     }
 
     private void OnAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -353,12 +413,19 @@ public sealed partial class MainWindow : Window
 
     private void OnTestToastClick(object sender, RoutedEventArgs e)
     {
-        // Diagnostic affordance: schedules a self-fired toast 30 seconds out.
-        // Uses the same Show()-based path as ReminderScheduler so a green
-        // test here is equivalent to a green real reminder. The launch arg
-        // points at today's date so a click exercises the navigation path
-        // too (MainWindow.OnToastInvoked picks it up).
-        ToastTester.FireIn(TimeSpan.FromSeconds(30));
+        // Diagnostic affordance: fires a Show()-path toast in 3 seconds —
+        // just enough to lose focus to another window for an honest test
+        // of the pop, but short enough to feel "immediate".
+        ToastTester.FireIn(TimeSpan.FromSeconds(3));
+    }
+
+    private void OnTestScheduledClick(object sender, RoutedEventArgs e)
+    {
+        // Companion to OnTestToastClick — exercises the sanctioned
+        // ScheduledToastNotification path so we can tell at a glance whether
+        // it's actually delivering on this Windows build. Title prefix
+        // "[sched]" distinguishes its toasts from the Show()-based ones.
+        ToastTester.ScheduleIn(TimeSpan.FromSeconds(30));
     }
 
     private void OnWindowClosed(object sender, WindowEventArgs args)

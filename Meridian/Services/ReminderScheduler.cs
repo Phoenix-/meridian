@@ -7,36 +7,24 @@ using Windows.UI.Notifications;
 
 namespace Meridian.Services;
 
-// Fires Windows toast notifications for upcoming Calendar events.
-//
-// We deliberately do NOT use ScheduledToastNotification: on Win11 26200 with
-// our unpackaged registration, AddToSchedule silently drops toasts (the WNP
-// platform receives the request but never dispatches it, with no error). The
-// immediate Show() path works, so the scheduler keeps in-process timers
-// (Task.Delay + Show()) and lives entirely inside the app's lifetime.
-//
-// Consequence: the app must be running for reminders to fire. Acceptable —
-// Meridian needs to be running anyway to sync data and surface its UI, and
-// we re-arm everything on startup via the cache's DataRefreshed event.
+// Schedules Windows toast notifications for upcoming Calendar events via the
+// platform's ScheduledToastNotification — survives app close (the WNP
+// platform itself fires the toast at the requested time).
 //
 // Design choices:
 //   * Popup reminders only. Email reminders are delivered by Google itself.
-//   * All-day events are skipped: Google's "1 day before 09:00" default would
-//     drown us in low-signal alerts on a typical calendar.
-//   * Per-event timers are tracked by (account, eventId, minutes) so we can
-//     cancel and reschedule on each refresh without firing duplicates.
+//   * All-day events are skipped: Google's "1 day before 09:00" default
+//     would drown us in low-signal alerts on a typical calendar.
+//   * Tag/Group derived from a stable per-event-instance key so a re-schedule
+//     replaces an entry instead of duplicating it.
 internal sealed class ReminderScheduler
 {
     private static readonly TimeSpan Horizon = TimeSpan.FromHours(48);
     private static readonly TimeSpan SkipPastMargin = TimeSpan.FromSeconds(5);
+    private const string GroupPrefix = "mrd-";
 
     private readonly CalendarCache _events;
     private readonly DispatcherQueue _dispatcher;
-
-    // Active timers keyed by a deterministic event-instance id so a refresh
-    // that re-encounters the same reminder is a no-op rather than a duplicate.
-    private readonly Dictionary<string, CancellationTokenSource> _pending = [];
-    private readonly Lock _gate = new();
 
     public ReminderScheduler(CalendarCache events, DispatcherQueue dispatcher)
     {
@@ -47,21 +35,11 @@ internal sealed class ReminderScheduler
 
     public void Reschedule() => _dispatcher.TryEnqueue(RescheduleCore);
 
-    // Cancels every reminder belonging to this account. Called when an account
-    // is removed so its reminders stop firing without disturbing the others.
-    public void DropAccount(AccountId account)
-    {
-        var prefix = account.Email + "|";
-        lock (_gate)
-        {
-            foreach (var key in _pending.Keys.ToList())
-            {
-                if (!key.StartsWith(prefix, StringComparison.Ordinal)) continue;
-                _pending[key].Cancel();
-                _pending.Remove(key);
-            }
-        }
-    }
+    // Cancels every scheduled reminder belonging to this account. Called when
+    // an account is removed so its reminders stop firing without disturbing
+    // the others.
+    public void DropAccount(AccountId account) =>
+        _dispatcher.TryEnqueue(() => ClearScheduledGroup(GroupFor(account.Email)));
 
     private void RescheduleCore()
     {
@@ -71,8 +49,8 @@ internal sealed class ReminderScheduler
             var horizon = now + Horizon;
             var events = _events.SnapshotRange(now, horizon);
 
-            // Collect the desired (key, fireAt, event, minutes) set for this tick.
-            var desired = new Dictionary<string, (DateTime FireAt, CalendarEvent Event, int Minutes)>();
+            var desiredByAccount =
+                new Dictionary<string, List<(DateTime FireAt, CalendarEvent Event, int Minutes)>>();
             int total = events.Count, allDay = 0, noRem = 0, noEmail = 0;
 
             foreach (var e in events)
@@ -86,37 +64,51 @@ internal sealed class ReminderScheduler
                     var fireAt = e.Start.AddMinutes(-minutes);
                     if (fireAt <= now + SkipPastMargin) continue;
                     if (fireAt > horizon) continue;
-                    desired[KeyFor(e, minutes)] = (fireAt, e, minutes);
+
+                    if (!desiredByAccount.TryGetValue(e.AccountEmail, out var list))
+                        desiredByAccount[e.AccountEmail] = list = [];
+                    list.Add((fireAt, e, minutes));
                 }
             }
 
-            int added = 0, kept = 0, cancelled = 0;
-            lock (_gate)
+            ToastNotifier notifier;
+            try
             {
-                // Cancel timers whose reminder is no longer desired (event
-                // deleted, time shifted, etc.).
-                foreach (var key in _pending.Keys.ToList())
-                {
-                    if (desired.ContainsKey(key)) continue;
-                    _pending[key].Cancel();
-                    _pending.Remove(key);
-                    cancelled++;
-                }
+                notifier = ToastNotificationManager.CreateToastNotifier(ToastSetup.ResolvedAumid);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Toast", ex, "CreateToastNotifier");
+                return;
+            }
 
-                // Arm timers for newly-desired reminders.
-                foreach (var (key, value) in desired)
+            int sched = 0, schedFail = 0;
+            foreach (var (email, list) in desiredByAccount)
+            {
+                var group = GroupFor(email);
+                ClearScheduledGroup(group, notifier);
+
+                foreach (var (fireAt, ev, minutes) in list)
                 {
-                    if (_pending.ContainsKey(key)) { kept++; continue; }
-                    var cts = new CancellationTokenSource();
-                    _pending[key] = cts;
-                    _ = ArmAsync(key, value.FireAt, value.Event, value.Minutes, cts.Token);
-                    added++;
+                    try
+                    {
+                        var toast = BuildScheduledToast(ev, minutes, fireAt, group);
+                        notifier.AddToSchedule(toast);
+                        sched++;
+                        Log.Write("Toast",
+                            $"  + scheduled '{ev.Title}' fireAt={fireAt:yyyy-MM-dd HH:mm} (minus {minutes}min)");
+                    }
+                    catch (Exception ex)
+                    {
+                        schedFail++;
+                        Log.Error("Toast", ex, $"AddToSchedule '{ev.Title}'");
+                    }
                 }
             }
 
             Log.Write("Toast",
                 $"reschedule: events={total} allday={allDay} noRem={noRem} noEmail={noEmail} " +
-                $"added={added} kept={kept} cancelled={cancelled}");
+                $"scheduled(ok={sched} fail={schedFail})");
         }
         catch (Exception ex)
         {
@@ -124,81 +116,81 @@ internal sealed class ReminderScheduler
         }
     }
 
-    private async Task ArmAsync(string key, DateTime fireAt, CalendarEvent e, int minutes, CancellationToken ct)
+    private static ScheduledToastNotification BuildScheduledToast(
+        CalendarEvent e, int minutes, DateTime fireAt, string group)
+    {
+        var when = e.Start.ToString("HH:mm");
+        var leadIn = minutes <= 0
+            ? "сейчас"
+            : minutes < 60
+                ? $"через {minutes} мин"
+                : minutes == 60
+                    ? "через час"
+                    : $"в {when}";
+
+        var title = Xml(e.Title);
+        var body  = Xml($"{leadIn} · {when}");
+        var launch = Xml($"date={e.Start:yyyy-MM-dd}");
+
+        var xml = new XmlDocument();
+        xml.LoadXml(
+            $"""
+            <toast launch="{launch}">
+              <visual>
+                <binding template="ToastGeneric">
+                  <text>{title}</text>
+                  <text>{body}</text>
+                </binding>
+              </visual>
+            </toast>
+            """);
+
+        return new ScheduledToastNotification(xml, new DateTimeOffset(fireAt))
+        {
+            Tag = TagFor(e, minutes),
+            Group = group,
+            ExpirationTime = new DateTimeOffset(e.Start.AddHours(1)),
+        };
+    }
+
+    private static void ClearScheduledGroup(string group, ToastNotifier? notifier = null)
     {
         try
         {
-            var delay = fireAt - DateTime.Now;
-            if (delay > TimeSpan.Zero)
-                await Task.Delay(delay, ct);
-
-            if (ct.IsCancellationRequested) return;
-
-            _dispatcher.TryEnqueue(() => FireToast(e, minutes));
-        }
-        catch (OperationCanceledException) { /* expected on reschedule */ }
-        catch (Exception ex)
-        {
-            Log.Error("Toast", ex, $"ArmAsync '{e.Title}'");
-        }
-        finally
-        {
-            lock (_gate)
+            notifier ??= ToastNotificationManager.CreateToastNotifier(ToastSetup.ResolvedAumid);
+            foreach (var st in notifier.GetScheduledToastNotifications())
             {
-                // Only remove if still our timer — a re-schedule may have
-                // replaced it with a fresh CTS.
-                if (_pending.TryGetValue(key, out var current) && current.Token == ct)
-                    _pending.Remove(key);
+                if (st.Group == group)
+                    notifier.RemoveFromSchedule(st);
             }
         }
-    }
-
-    private static void FireToast(CalendarEvent e, int minutes)
-    {
-        try
-        {
-            var when = e.Start.ToString("HH:mm");
-            var leadIn = minutes <= 0
-                ? "сейчас"
-                : minutes < 60
-                    ? $"через {minutes} мин"
-                    : minutes == 60
-                        ? "через час"
-                        : $"в {when}";
-
-            var title = Xml(e.Title);
-            var body  = Xml($"{leadIn} · {when}");
-            // launch=date=YYYY-MM-DD is parsed by MeridianToastActivator on
-            // click; MainWindow then navigates the active view to that day.
-            var launch = Xml($"date={e.Start:yyyy-MM-dd}");
-
-            var xml = new XmlDocument();
-            xml.LoadXml(
-                $"""
-                <toast launch="{launch}">
-                  <visual>
-                    <binding template="ToastGeneric">
-                      <text>{title}</text>
-                      <text>{body}</text>
-                    </binding>
-                  </visual>
-                </toast>
-                """);
-
-            var notifier = ToastNotificationManager.CreateToastNotifier(ToastSetup.ResolvedAumid);
-            notifier.Show(new ToastNotification(xml));
-            Log.Write("Toast", $"fired: '{e.Title}' at {DateTime.Now:HH:mm:ss}");
-        }
         catch (Exception ex)
         {
-            Log.Error("Toast", ex, $"FireToast '{e.Title}'");
+            Log.Error("Toast", ex, $"ClearScheduledGroup {group}");
         }
     }
 
-    // Stable per-reminder key. Combines account, event id, and minutes so a
-    // single event with multiple reminders gets distinct timers.
-    private static string KeyFor(CalendarEvent e, int minutes) =>
-        $"{e.AccountEmail}|{e.Id}|{minutes}";
+    private static string GroupFor(string email) => GroupPrefix + Hash(email);
+
+    private static string TagFor(CalendarEvent e, int minutes) =>
+        Hash($"{e.Id}:{minutes}");
+
+    // 32-bit FNV-1a, 8 hex chars. Tag and Group were historically capped at
+    // 16 chars on early Win10 builds; an 8-char hash keeps headroom while
+    // collisions are negligible at our scale.
+    private static string Hash(string s)
+    {
+        unchecked
+        {
+            uint h = 2166136261;
+            foreach (var c in s)
+            {
+                h ^= c;
+                h *= 16777619;
+            }
+            return h.ToString("x8");
+        }
+    }
 
     private static string Xml(string s) => System.Net.WebUtility.HtmlEncode(s);
 }
