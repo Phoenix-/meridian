@@ -28,6 +28,18 @@ public class AccountManager(ProviderRegistry providers)
         return id;
     }
 
+    // Returns the freshly authorized AccountId. If the user picked a different
+    // Google account in the browser (rare with login_hint, but possible), the
+    // returned id may not equal the requested one — the caller decides whether
+    // that counts as success or cancellation.
+    public async Task<AccountId> ReauthenticateAccountAsync(AccountId id, CancellationToken ct = default)
+    {
+        var refreshed = await providers.Get(id).ReauthenticateAccountAsync(id, ct);
+        if (!Accounts.Contains(refreshed))
+            Accounts.Add(refreshed);
+        return refreshed;
+    }
+
     public async Task RemoveAccountAsync(AccountId id)
     {
         await providers.Get(id).RevokeAccountAsync(id);

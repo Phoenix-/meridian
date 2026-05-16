@@ -51,6 +51,7 @@ public sealed partial class MainWindow : Window
         };
 
         _accountManager.Accounts.CollectionChanged += OnAccountsChanged;
+        ViewModel.ExpiredAccounts.CollectionChanged += OnExpiredAccountsChanged;
 
         MeridianToastActivator.Invoked += OnToastInvoked;
         Closed += (_, _) => MeridianToastActivator.Invoked -= OnToastInvoked;
@@ -165,14 +166,15 @@ public sealed partial class MainWindow : Window
             {
                 case NotifyCollectionChangedAction.Add:
                     foreach (var item in e.NewItems!)
-                        AccountsList.Items.Add(item);
+                        if (item is AccountId aid)
+                            AccountsList.Items.Add(new AccountRow(aid) { IsExpired = ViewModel.ExpiredAccounts.Contains(aid) });
                     break;
                 case NotifyCollectionChangedAction.Remove:
                     foreach (var item in e.OldItems!)
                     {
                         if (item is not AccountId removed) break;
                         for (int i = AccountsList.Items.Count - 1; i >= 0; i--)
-                            if (AccountsList.Items[i] is AccountId aid && aid == removed)
+                            if (AccountsList.Items[i] is AccountRow row && row.Id == removed)
                             { AccountsList.Items.RemoveAt(i); break; }
                     }
                     break;
@@ -180,6 +182,20 @@ public sealed partial class MainWindow : Window
                     AccountsList.Items.Clear();
                     break;
             }
+        });
+    }
+
+    private void OnExpiredAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            AccountsBadge.Visibility = ViewModel.ExpiredAccounts.Count > 0
+                ? Visibility.Visible : Visibility.Collapsed;
+
+            var expired = new HashSet<AccountId>(ViewModel.ExpiredAccounts);
+            foreach (var item in AccountsList.Items)
+                if (item is AccountRow row)
+                    row.IsExpired = expired.Contains(row.Id);
         });
     }
 
@@ -461,6 +477,29 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             await ShowErrorAsync("Ошибка удаления аккаунта", ex.Message);
+        }
+    }
+
+    private async void OnReauthAccountClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not AccountId id) return;
+        AccountsFlyout.Hide();
+        try
+        {
+            var refreshed = await _accountManager.ReauthenticateAccountAsync(id);
+            // If the user signed in with a different Google account in the
+            // browser, the saved token now belongs to that other account —
+            // the originally-expired one is still bad. Treat that as a
+            // partial success: clear nothing for the original, surface the
+            // new account through the normal flow.
+            if (refreshed == id)
+                ViewModel.ClearAuthExpired(id);
+            else
+                ViewModel.InvalidateAndRefresh();
+        }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("Ошибка входа", ex.Message);
         }
     }
 }

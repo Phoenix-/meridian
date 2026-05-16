@@ -1,9 +1,13 @@
+using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Meridian.Auth;
+using Meridian.Diagnostics;
 using Meridian.Models;
 using Meridian.Services;
 using Meridian.Views;
 using Microsoft.UI.Dispatching;
+using Windows.Data.Xml.Dom;
+using Windows.UI.Notifications;
 
 namespace Meridian.ViewModels;
 
@@ -23,6 +27,20 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private bool _isRefreshing;
 
+    // Accounts whose tokens are known-bad. Bound by the UI to show a "!"
+    // badge on the accounts button and a warning icon next to each bad
+    // account inside the flyout. Mutations happen on the dispatcher thread
+    // so XAML can data-bind directly without a sync wrapper.
+    public ObservableCollection<AccountId> ExpiredAccounts { get; } = [];
+
+    public event Action<AccountId>? AccountAuthExpiredOnce;
+
+    // Per-session de-dupe of "session expired" toasts: we surface the toast
+    // exactly once for each account that goes bad, so the polling loop
+    // doesn't pop a new toast every minute while the user is busy. Reset
+    // happens with the process lifetime — a restart counts as fresh.
+    private readonly HashSet<AccountId> _toastedExpired = [];
+
     public MainViewModel(AccountManager accounts, ProviderRegistry providers, DispatcherQueue dispatcher)
     {
         _dispatcher = dispatcher;
@@ -34,6 +52,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _tasks.DataRefreshed += OnTasksRefreshed;
         _calendarLists.DataRefreshed += OnCalendarListsRefreshed;
 
+        _events.AccountAuthExpired += OnAccountAuthExpired;
+        _tasks.AccountAuthExpired += OnAccountAuthExpired;
+        _calendarLists.AccountAuthExpired += OnAccountAuthExpired;
+
         // Subscribes to CalendarCache.DataRefreshed internally; no extra wiring.
         _reminders = new ReminderScheduler(_events, dispatcher);
 
@@ -42,6 +64,73 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _calendarLists.RefreshAll();
         _ = PollLoopAsync(_pollCts.Token);
+    }
+
+    private void OnAccountAuthExpired(AccountId account)
+    {
+        // Caches can raise this from any thread (continuations on the thread
+        // pool). Hop to the UI thread before mutating the ObservableCollection
+        // bound to XAML, and dedupe on top of that.
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (!ExpiredAccounts.Contains(account))
+                ExpiredAccounts.Add(account);
+
+            if (_toastedExpired.Add(account))
+            {
+                ShowAuthExpiredToast(account);
+                AccountAuthExpiredOnce?.Invoke(account);
+            }
+        });
+    }
+
+    private static void ShowAuthExpiredToast(AccountId account)
+    {
+        try
+        {
+            var notifier = ToastNotificationManager.CreateToastNotifier(ToastSetup.ResolvedAumid);
+            var title = $"Сессия истекла: {account.Email}";
+            var body = "Откройте Meridian и войдите в аккаунт заново";
+
+            var xml = new XmlDocument();
+            xml.LoadXml(
+                $"""
+                <toast launch="{System.Net.WebUtility.HtmlEncode($"reauth={account}")}">
+                  <visual>
+                    <binding template="ToastGeneric">
+                      <text>{System.Net.WebUtility.HtmlEncode(title)}</text>
+                      <text>{System.Net.WebUtility.HtmlEncode(body)}</text>
+                    </binding>
+                  </visual>
+                </toast>
+                """);
+
+            notifier.Show(new ToastNotification(xml)
+            {
+                Tag = "auth-" + account.ToDirectoryName(),
+                Group = "mrd-auth",
+            });
+            Log.Write("Auth", $"toast: shown auth-expired for {account}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Auth", ex, "ShowAuthExpiredToast");
+        }
+    }
+
+    // Drops auth-expired state for an account after a successful re-auth and
+    // kicks off fresh syncs so the UI repopulates without waiting for the
+    // 60-second poll tick.
+    public void ClearAuthExpired(AccountId account)
+    {
+        _events.ClearAuthExpired(account);
+        _tasks.ClearAuthExpired(account);
+        ExpiredAccounts.Remove(account);
+        _toastedExpired.Remove(account);
+        _calendarLists.RefreshAll();
+        _events.RefreshAll();
+        _tasks.RefreshAll();
+        Refresh();
     }
 
     private async Task PollLoopAsync(CancellationToken ct)

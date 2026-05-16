@@ -16,6 +16,12 @@ public interface ICalendarProvider
     // Opens browser / login UI, saves token, returns the new AccountId.
     Task<AccountId> AddAccountAsync(CancellationToken ct = default);
 
+    // Re-runs the browser flow for an existing account (used when the saved
+    // refresh token can no longer be used). Returns the AccountId of the
+    // freshly authorized account — must match the supplied id; if Google
+    // returns a different account the caller treats it as cancelled.
+    Task<AccountId> ReauthenticateAccountAsync(AccountId id, CancellationToken ct = default);
+
     Task RevokeAccountAsync(AccountId id, CancellationToken ct = default);
 
     // ── Data ──────────────────────────────────────────────────────────────────

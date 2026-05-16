@@ -1,4 +1,5 @@
 using Meridian.Auth;
+using Meridian.Diagnostics;
 using Meridian.Models;
 
 namespace Meridian.Services;
@@ -9,6 +10,7 @@ namespace Meridian.Services;
 public sealed class CalendarListCache
 {
     public event Action? DataRefreshed;
+    public event Action<AccountId>? AccountAuthExpired;
 
     private readonly AccountManager _accounts;
     private readonly ProviderRegistry _providers;
@@ -52,8 +54,13 @@ public sealed class CalendarListCache
 
         var fetches = ids.Select(async id =>
         {
-            try { return (id, list: await _providers.Get(id).GetCalendarsAsync(id)); }
-            catch { return (id, list: (List<CalendarInfo>?)null); }
+            try { return (id, list: await _providers.Get(id).GetCalendarsAsync(id), expired: (AccountAuthExpiredException?)null); }
+            catch (AccountAuthExpiredException ex) { return (id, list: (List<CalendarInfo>?)null, expired: ex); }
+            catch (Exception ex)
+            {
+                Log.Error("Sync", ex, $"calendar list fetch failed for {id}");
+                return (id, list: (List<CalendarInfo>?)null, expired: (AccountAuthExpiredException?)null);
+            }
         });
 
         var results = await Task.WhenAll(fetches);
@@ -62,8 +69,14 @@ public sealed class CalendarListCache
 
         bool changed = false;
 
-        foreach (var (id, list) in results)
+        foreach (var (id, list, expired) in results)
         {
+            if (expired is not null)
+            {
+                Log.Error("Sync", expired, $"auth expired for {id} (calendar list)");
+                AccountAuthExpired?.Invoke(id);
+                continue;
+            }
             if (list is null) continue;
             _byAccount[id] = list;
             _store.Save(new CalendarListData
