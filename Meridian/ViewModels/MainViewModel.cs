@@ -19,6 +19,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly TaskCache _tasks;
     private readonly CalendarListCache _calendarLists;
     private readonly ReminderScheduler _reminders;
+    private readonly OngoingEventIndicator _ongoing;
     private readonly DispatcherQueue _dispatcher;
     private readonly CancellationTokenSource _pollCts = new();
 
@@ -58,6 +59,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         // Subscribes to CalendarCache.DataRefreshed internally; no extra wiring.
         _reminders = new ReminderScheduler(_events, dispatcher);
+        _ongoing   = new OngoingEventIndicator(_events, accounts, dispatcher);
 
         _events.FetchingChanged += UpdateFetching;
         _tasks.FetchingChanged += UpdateFetching;
