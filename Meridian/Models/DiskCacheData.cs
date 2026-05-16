@@ -7,6 +7,8 @@ public sealed class ViewStateData
     // "Day", "Week", "Month"
     public string View { get; set; } = "Day";
     public DateTime Date { get; set; } = DateTime.Today;
+    // Scroll focus time-of-day as TimeSpan.Ticks. Null for Month or when not yet known.
+    public long? FocusTimeTicks { get; set; }
 }
 
 public sealed class WindowStateData

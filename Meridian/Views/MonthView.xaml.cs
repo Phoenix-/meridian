@@ -31,10 +31,10 @@ public sealed partial class MonthView : Page, ICalendarView
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
-        if (e.Parameter is (MainViewModel vm, DateTime date))
+        if (e.Parameter is CalendarNavParam p)
         {
-            _vm = vm;
-            _date = date;
+            _vm = p.ViewModel;
+            _date = p.Date;
         }
         else
         {
@@ -46,6 +46,8 @@ public sealed partial class MonthView : Page, ICalendarView
     }
 
     public DateTime GetCurrentDate() => _date;
+
+    public TimeSpan? GetFocusTime() => null;
 
     public (DateTime From, DateTime To) GetRange()
     {

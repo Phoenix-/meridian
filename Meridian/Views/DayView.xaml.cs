@@ -14,6 +14,7 @@ public sealed partial class DayView : Page, ICalendarView
 {
     private MainViewModel? _vm;
     private DateTime _date;
+    private TimeSpan? _initialFocusTime;
     private CalendarSnapshot? _lastSnapshot;
     private int? _lastContentHash;
 
@@ -82,21 +83,31 @@ public sealed partial class DayView : Page, ICalendarView
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
-        if (e.Parameter is (MainViewModel vm, DateTime date))
+        if (e.Parameter is CalendarNavParam p)
         {
-            _vm = vm;
-            _date = date;
+            _vm = p.ViewModel;
+            _date = p.Date;
+            _initialFocusTime = p.FocusTime;
         }
         else
         {
             _vm = e.Parameter as MainViewModel;
             _date = DateTime.Today;
+            _initialFocusTime = null;
         }
         if (_vm == null) return;
         _vm.SetActiveView(this);
     }
 
     public DateTime GetCurrentDate() => _date;
+
+    public TimeSpan? GetFocusTime()
+    {
+        var sv = FindScrollViewer(this);
+        if (sv == null || sv.ActualHeight <= 0) return null;
+        double centerY = sv.VerticalOffset + sv.ActualHeight / 2;
+        return WeekViewLayout.YToTime(centerY);
+    }
 
     public (DateTime From, DateTime To) GetRange() =>
         (_date.Date, _date.Date.AddDays(1));
@@ -419,9 +430,15 @@ public sealed partial class DayView : Page, ICalendarView
 
         void DoScroll()
         {
-            double targetY = _date.Date == DateTime.Today
-                ? WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay) - sv.ActualHeight / 2
-                : WeekViewLayout.TimeToY(new TimeSpan(8, 0, 0));
+            TimeSpan focus;
+            if (_initialFocusTime is { } explicitFocus)
+                focus = explicitFocus;
+            else if (_date.Date == DateTime.Today)
+                focus = DateTime.Now.TimeOfDay;
+            else
+                focus = new TimeSpan(9, 0, 0);
+            _initialFocusTime = null;
+            double targetY = WeekViewLayout.TimeToY(focus) - sv.ActualHeight / 2;
             sv.ChangeView(null, Math.Max(0, targetY), null, disableAnimation: true);
         }
 

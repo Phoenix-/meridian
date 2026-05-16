@@ -308,11 +308,12 @@ public sealed partial class MainWindow : Window
             var saved = DiskCache.ReadViewState();
             if (saved != null)
             {
+                var savedFocus = saved.FocusTimeTicks is { } ticks ? new TimeSpan(ticks) : (TimeSpan?)null;
                 switch (saved.View)
                 {
-                    case "Week":  NavigateWeek(saved.Date);  break;
-                    case "Month": NavigateMonth(saved.Date); break;
-                    default:      NavigateDay(saved.Date);   break;
+                    case "Week":  NavigateWeek(saved.Date, savedFocus);  break;
+                    case "Month": NavigateMonth(saved.Date);             break;
+                    default:      NavigateDay(saved.Date, savedFocus);   break;
                 }
             }
             else
@@ -355,31 +356,69 @@ public sealed partial class MainWindow : Window
     private DateTime GetCurrentDate() =>
         ContentFrame.Content is ICalendarView v ? v.GetCurrentDate() : DateTime.Today;
 
-    private void NavigateDay(DateTime? date = null)
+    // Decides what time-of-day the about-to-be-shown timed view (Day/Week) should
+    // center its scroll on. Priority:
+    //   1. The current view's own focus time (Day↔Week — preserve what the user scrolled to).
+    //   2. null if the target range contains "now" — the target view will center on Now itself.
+    //   3. Start of the first timed event in the target range.
+    //   4. 09:00 fallback.
+    // Returns null for Month (Month has no time axis) and for case (2) above.
+    private TimeSpan? ResolveFocusTime(DateTime targetDate, Type targetViewType)
     {
-        var d = date ?? GetCurrentDate();
-        SetActiveButton(BtnDay);
-        ContentFrame.Navigate(typeof(DayView), (ViewModel, d));
-        UpdateDateLabel();
-        DiskCache.WriteViewState("Day", d);
+        if (targetViewType == typeof(MonthView)) return null;
+
+        var sourceFocus = (ContentFrame.Content as ICalendarView)?.GetFocusTime();
+        if (sourceFocus is { } src) return src;
+
+        var (from, to) = TargetRange(targetDate, targetViewType);
+        if (DateTime.Now >= from && DateTime.Now < to) return null;
+
+        var firstEvent = ViewModel.GetFirstTimedEventStart(from, to);
+        if (firstEvent is { } ev) return ev.TimeOfDay;
+
+        return new TimeSpan(9, 0, 0);
     }
 
-    private void NavigateWeek(DateTime? date = null)
+    private static (DateTime From, DateTime To) TargetRange(DateTime date, Type viewType)
+    {
+        if (viewType == typeof(DayView))
+            return (date.Date, date.Date.AddDays(1));
+        if (viewType == typeof(WeekView))
+        {
+            int dow = ((int)date.DayOfWeek - (int)DayOfWeek.Monday + 7) % 7;
+            var monday = date.Date.AddDays(-dow);
+            return (monday, monday.AddDays(7));
+        }
+        return (date.Date, date.Date.AddDays(1));
+    }
+
+    private void NavigateDay(DateTime? date = null, TimeSpan? explicitFocus = null)
     {
         var d = date ?? GetCurrentDate();
-        SetActiveButton(BtnWeek);
-        ContentFrame.Navigate(typeof(WeekView), (ViewModel, d));
+        var focus = explicitFocus ?? ResolveFocusTime(d, typeof(DayView));
+        SetActiveButton(BtnDay);
+        ContentFrame.Navigate(typeof(DayView), new CalendarNavParam(ViewModel, d, focus));
         UpdateDateLabel();
-        DiskCache.WriteViewState("Week", d);
+        DiskCache.WriteViewState("Day", d, focus);
+    }
+
+    private void NavigateWeek(DateTime? date = null, TimeSpan? explicitFocus = null)
+    {
+        var d = date ?? GetCurrentDate();
+        var focus = explicitFocus ?? ResolveFocusTime(d, typeof(WeekView));
+        SetActiveButton(BtnWeek);
+        ContentFrame.Navigate(typeof(WeekView), new CalendarNavParam(ViewModel, d, focus));
+        UpdateDateLabel();
+        DiskCache.WriteViewState("Week", d, focus);
     }
 
     private void NavigateMonth(DateTime? date = null)
     {
         var d = date ?? GetCurrentDate();
         SetActiveButton(BtnMonth);
-        ContentFrame.Navigate(typeof(MonthView), (ViewModel, d));
+        ContentFrame.Navigate(typeof(MonthView), new CalendarNavParam(ViewModel, d, null));
         UpdateDateLabel();
-        DiskCache.WriteViewState("Month", d);
+        DiskCache.WriteViewState("Month", d, null);
     }
 
     private void UpdateDateLabel()
@@ -422,7 +461,7 @@ public sealed partial class MainWindow : Window
             MonthView => "Month",
             _         => "Day",
         };
-        DiskCache.WriteViewState(viewName, view.GetCurrentDate());
+        DiskCache.WriteViewState(viewName, view.GetCurrentDate(), view.GetFocusTime());
     }
 
     private void RestoreWindowState()
