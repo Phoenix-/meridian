@@ -14,7 +14,8 @@
         </Grid.RowDefinitions>
 
         <!-- Top bar / custom title bar -->
-        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent" Padding="0,8">
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent" Padding="0,8"
+              Loaded="OnTitleBarLoaded" SizeChanged="OnTitleBarSizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -22,7 +23,8 @@
             </Grid.ColumnDefinitions>
 
             <!-- View buttons -->
-            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="4">
+            <StackPanel x:Name="LeftButtons" Grid.Column="0" Orientation="Horizontal" Spacing="4"
+                        SizeChanged="OnTitleBarSizeChanged">
                 <Button x:Name="BtnDay" Content="День" Click="OnDayClick"/>
                 <Button x:Name="BtnWeek" Content="Неделя" Click="OnWeekClick"/>
                 <Button x:Name="BtnMonth" Content="Месяц" Click="OnMonthClick"/>
@@ -34,7 +36,8 @@
                        Style="{StaticResource SubtitleTextBlockStyle}"/>
 
             <!-- Right controls -->
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4">
+            <StackPanel x:Name="RightButtons" Grid.Column="2" Orientation="Horizontal" Spacing="4"
+                        SizeChanged="OnTitleBarSizeChanged">
                 <Button Content="&#xE76B;" FontFamily="Segoe MDL2 Assets" Click="OnPrevClick" ToolTipService.ToolTip="Назад"/>
                 <Button Content="Сегодня" Click="OnTodayClick" ToolTipService.ToolTip="Перейти к сегодня"/>
                 <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets" Click="OnNextClick" ToolTipService.ToolTip="Вперёд"/>

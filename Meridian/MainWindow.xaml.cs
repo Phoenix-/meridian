@@ -243,6 +243,43 @@ public sealed partial class MainWindow : Window
             8,
             (AppWindow.TitleBar.RightInset / scale) + 8,
             8);
+
+        UpdateTitleBarPassthrough();
+    }
+
+    private void OnTitleBarLoaded(object sender, RoutedEventArgs e) => UpdateTitleBarPassthrough();
+    private void OnTitleBarSizeChanged(object sender, SizeChangedEventArgs e) => UpdateTitleBarPassthrough();
+
+    // Without this, double-clicking our title-bar buttons hits the non-client area
+    // underneath them and Windows treats it as a title-bar double-click → max/restore.
+    // SetTitleBar marks the whole element as drag region; we carve the button strips
+    // back out as Passthrough so the chrome stops eating those clicks.
+    private void UpdateTitleBarPassthrough()
+    {
+        if (_closed) return;
+        if (Content?.XamlRoot is not { } root) return;
+
+        var src = Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id);
+        var scale = root.RasterizationScale;
+        if (scale <= 0) scale = 1.0;
+
+        var rects = new List<Windows.Graphics.RectInt32>(2);
+        AddPassthroughRect(rects, LeftButtons, scale);
+        AddPassthroughRect(rects, RightButtons, scale);
+
+        src.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, rects.ToArray());
+    }
+
+    private void AddPassthroughRect(List<Windows.Graphics.RectInt32> rects, FrameworkElement element, double scale)
+    {
+        if (element.ActualWidth <= 0 || element.ActualHeight <= 0) return;
+        var transform = element.TransformToVisual(null);
+        var topLeft = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+        rects.Add(new Windows.Graphics.RectInt32(
+            (int)Math.Floor(topLeft.X * scale),
+            (int)Math.Floor(topLeft.Y * scale),
+            (int)Math.Ceiling(element.ActualWidth * scale),
+            (int)Math.Ceiling(element.ActualHeight * scale)));
     }
 
     private async Task InitAsync()
