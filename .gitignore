@@ -14,8 +14,9 @@ obj/
 client_secret.json
 Meridian/Auth/Secrets.g.cs
 
-# Claude Code local config
-.claude/
+# Claude Code: share agent definitions, keep user-specific settings local
+.claude/*
+!.claude/agents/
 
 # NuGet
 *.nupkg
