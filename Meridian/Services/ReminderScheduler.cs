@@ -168,6 +168,16 @@ internal sealed class ReminderScheduler
                     if (fireAt <= now - MissedWindow) continue;
                     if (_missed.WasShown(eventKey)) continue;
 
+                    // Diagnostic for the "duplicate after fresh delivery" race:
+                    // we want to see, for every missed candidate, how stale
+                    // fireAt is and whether actual happened to contain the tag.
+                    // Two reconcile passes seconds apart can disagree on the
+                    // latter (WNP cleans the queue lazily after firing).
+                    Log.Write("Toast",
+                        $"  ? miss candidate '{e.Title}' fireAt={fireAt:HH:mm:ss} " +
+                        $"deltaNow={(now - fireAt).TotalSeconds:F1}s " +
+                        $"actualHasTag={actual.ContainsKey(tag)} actualCount={actual.Count}");
+
                     // Pick the earliest unmet reminder as the event's
                     // representative — that's the one with the most lead-time
                     // signal value.
