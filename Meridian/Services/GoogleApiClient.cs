@@ -164,7 +164,7 @@ public sealed class GoogleApiClient(AccountId id)
             if (resp.StatusCode == System.Net.HttpStatusCode.Gone)
                 return new EventSyncResult([], [], null, true);
 
-            resp.EnsureSuccessStatusCode();
+            await EnsureSuccessOrAuthExpiredAsync(resp, ct);
             var list = await resp.Content.ReadFromJsonAsync(GoogleApiJsonContext.Default.EventList, ct);
 
             foreach (var item in list?.Items ?? [])
@@ -221,7 +221,7 @@ public sealed class GoogleApiClient(AccountId id)
             using var req = new HttpRequestMessage(HttpMethod.Get, url);
             req.Headers.Authorization = new("Bearer", token);
             using var resp = await _http.SendAsync(req, ct);
-            resp.EnsureSuccessStatusCode();
+            await EnsureSuccessOrAuthExpiredAsync(resp, ct);
 
             var page = await resp.Content.ReadFromJsonAsync(GoogleApiJsonContext.Default.CalendarListResponse, ct);
 
@@ -305,10 +305,10 @@ public sealed class GoogleApiClient(AccountId id)
         return allTasks;
     }
 
-    private static async Task<TaskListList?> GetTaskListListAsync(string url, string token, CancellationToken ct)
+    private async Task<TaskListList?> GetTaskListListAsync(string url, string token, CancellationToken ct)
         => await SendGetAsync(url, token, GoogleApiJsonContext.Default.TaskListList, ct);
 
-    private static async Task<TaskList?> GetTaskListAsync(string url, string token, CancellationToken ct)
+    private async Task<TaskList?> GetTaskListAsync(string url, string token, CancellationToken ct)
         => await SendGetAsync(url, token, GoogleApiJsonContext.Default.TaskList, ct);
 
     // Returns the popup-method reminder minutes to attach to an event. Returns
@@ -341,7 +341,7 @@ public sealed class GoogleApiClient(AccountId id)
         return result;
     }
 
-    private static async Task<T?> SendGetAsync<T>(
+    private async Task<T?> SendGetAsync<T>(
         string url, string accessToken,
         System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo,
         CancellationToken ct)
@@ -349,7 +349,28 @@ public sealed class GoogleApiClient(AccountId id)
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Authorization = new("Bearer", accessToken);
         var resp = await _http.SendAsync(req, ct);
-        resp.EnsureSuccessStatusCode();
+        await EnsureSuccessOrAuthExpiredAsync(resp, ct);
         return await resp.Content.ReadFromJsonAsync(typeInfo, ct);
+    }
+
+    // Translates 401/403 (unauthorized / forbidden) responses from Google APIs
+    // into the typed AccountAuthExpiredException so the caches can short-circuit
+    // sync for this account. Everything else falls through to the standard
+    // HttpRequestException via EnsureSuccessStatusCode().
+    private async Task EnsureSuccessOrAuthExpiredAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        if (resp.IsSuccessStatusCode) return;
+
+        var code = (int)resp.StatusCode;
+        if (code == 401 || code == 403)
+        {
+            string body = "";
+            try { body = await resp.Content.ReadAsStringAsync(ct); } catch { }
+            throw new Meridian.Auth.AccountAuthExpiredException(id, $"api: HTTP {code} ({Trim(body)})");
+        }
+
+        resp.EnsureSuccessStatusCode();
+
+        static string Trim(string s) => s.Length <= 200 ? s : s[..200];
     }
 }

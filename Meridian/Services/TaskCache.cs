@@ -1,4 +1,5 @@
 using Meridian.Auth;
+using Meridian.Diagnostics;
 using Meridian.Models;
 
 namespace Meridian.Services;
@@ -9,8 +10,17 @@ public sealed class TaskCache
 {
     public event Action? DataRefreshed;
     public event Action? FetchingChanged;
+    // Mirrors CalendarCache.AccountAuthExpired — Tasks API answers 401/403 on
+    // the same expired tokens, so we report from here too.
+    public event Action<AccountId>? AccountAuthExpired;
 
     public bool IsFetching => _activeFetches > 0;
+
+    private readonly HashSet<AccountId> _authExpired = [];
+
+    public bool IsAuthExpired(AccountId account) => _authExpired.Contains(account);
+
+    public void ClearAuthExpired(AccountId account) => _authExpired.Remove(account);
 
     private readonly AccountManager _accounts;
     private readonly ProviderRegistry _providers;
@@ -87,29 +97,58 @@ public sealed class TaskCache
         _loadingTask = DoFetch(startGen);
         _activeFetches++;
         FetchingChanged?.Invoke();
-        try { await _loadingTask; }
-        catch { }
+        bool succeeded = false;
+        try
+        {
+            await _loadingTask;
+            succeeded = true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Sync", ex, "tasks fetch failed");
+        }
         finally
         {
             _loadingTask = null;
             _activeFetches--;
             FetchingChanged?.Invoke();
         }
-        if (startGen == _generation)
+        if (succeeded && startGen == _generation)
             DataRefreshed?.Invoke();
     }
 
     private async Task DoFetch(int startGen)
     {
-        var ids = _accounts.Ids.ToList();
-        var taskFetches = ids.Select(async id => (id, tasks: await _providers.Get(id).GetTasksAsync(id)));
-        var taskResults = await Task.WhenAll(taskFetches);
+        // Per-account try/catch so one expired account doesn't tank the whole
+        // batch: we still want fresh tasks for the healthy accounts.
+        var ids = _accounts.Ids.Where(id => !_authExpired.Contains(id)).ToList();
+        var taskFetches = ids.Select(async id =>
+        {
+            try { return (id, tasks: await _providers.Get(id).GetTasksAsync(id), expired: (AccountAuthExpiredException?)null); }
+            catch (AccountAuthExpiredException ex) { return (id, tasks: (List<TaskItem>?)null, expired: ex); }
+        });
+        var results = await Task.WhenAll(taskFetches);
 
         if (startGen != _generation) return;
 
-        _tasksByAccount.Clear();
-        foreach (var (id, tasks) in taskResults)
+        foreach (var (id, _, expired) in results)
+        {
+            if (expired is null) continue;
+            if (_authExpired.Add(id))
+            {
+                Log.Error("Sync", expired, $"auth expired for {id} (tasks)");
+                AccountAuthExpired?.Invoke(id);
+            }
+        }
+
+        // Replace only the accounts we successfully fetched; leave previously
+        // cached snapshots for expired accounts in place so the UI doesn't
+        // visibly lose tasks the second a token goes bad.
+        foreach (var (id, tasks, expired) in results)
+        {
+            if (expired is not null || tasks is null) continue;
             _tasksByAccount[id.Email] = tasks;
+        }
         _loaded = true;
 
         _store.Save(new TaskStoreData

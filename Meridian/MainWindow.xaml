@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:Meridian"
     xmlns:auth="using:Meridian.Auth"
+    xmlns:vm="using:Meridian.ViewModels"
     Title="Meridian">
 
     <Grid>
@@ -50,25 +51,46 @@
                 <Button x:Name="BtnTestScheduled" Content="&#xE823;" FontFamily="Segoe MDL2 Assets"
                         Click="OnTestScheduledClick" Visibility="Collapsed"
                         ToolTipService.ToolTip="Тестовый отложенный тост через 30 секунд (AddToSchedule)"/>
-                <Button x:Name="BtnAccounts" Content="&#xE77B;" FontFamily="Segoe MDL2 Assets"
+                <Button x:Name="BtnAccounts"
                         ToolTipService.ToolTip="Аккаунты">
+                    <Grid>
+                        <TextBlock Text="&#xE77B;" FontFamily="Segoe MDL2 Assets"/>
+                        <!-- "!" badge: visible when at least one account has an expired session. -->
+                        <Border x:Name="AccountsBadge" Visibility="Collapsed"
+                                Width="10" Height="10" CornerRadius="5"
+                                Background="#E81123"
+                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="0,-2,-2,0">
+                            <TextBlock Text="!" Foreground="White" FontSize="8" FontWeight="Bold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Margin="0,-1,0,0"/>
+                        </Border>
+                    </Grid>
                     <Button.Flyout>
                         <Flyout x:Name="AccountsFlyout" Placement="Bottom">
-                            <StackPanel Spacing="8" MinWidth="220">
+                            <StackPanel Spacing="8" MinWidth="260">
                                 <TextBlock Text="Аккаунты" Style="{StaticResource SubtitleTextBlockStyle}"/>
                                 <ItemsControl x:Name="AccountsList">
                                     <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="auth:AccountId">
+                                        <DataTemplate x:DataType="vm:AccountRow">
                                             <Grid Margin="0,2">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Grid.Column="0" Text="{x:Bind Email}"
                                                            VerticalAlignment="Center" TextWrapping="NoWrap"
                                                            TextTrimming="CharacterEllipsis"/>
-                                                <Button Grid.Column="1" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets"
-                                                        Margin="8,0,0,0" Tag="{x:Bind}"
+                                                <!-- Warning icon: click to re-auth. Only visible when token is bad. -->
+                                                <Button Grid.Column="1" Content="&#xE7BA;" FontFamily="Segoe MDL2 Assets"
+                                                        Margin="8,0,0,0" Tag="{x:Bind Id}"
+                                                        Foreground="#E81123"
+                                                        Visibility="{x:Bind IsExpired, Mode=OneWay}"
+                                                        Click="OnReauthAccountClick"
+                                                        ToolTipService.ToolTip="Сессия истекла — войдите снова"/>
+                                                <Button Grid.Column="2" Content="&#xE74D;" FontFamily="Segoe MDL2 Assets"
+                                                        Margin="8,0,0,0" Tag="{x:Bind Id}"
                                                         Click="OnRemoveAccountClick"
                                                         ToolTipService.ToolTip="Удалить аккаунт"/>
                                             </Grid>

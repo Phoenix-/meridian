@@ -1,4 +1,5 @@
 using Meridian.Auth;
+using Meridian.Diagnostics;
 using Meridian.Models;
 
 namespace Meridian.Services;
@@ -25,8 +26,21 @@ public sealed class CalendarCache
 
     public event Action<IReadOnlyList<int>>? DataRefreshed;
     public event Action? FetchingChanged;
+    // Raised once for every account whose token can't be refreshed. The view
+    // model uses it to surface a "session expired" affordance. We keep firing
+    // on every failure so callers can de-dupe with their own policy.
+    public event Action<AccountId>? AccountAuthExpired;
 
     public bool IsFetching => _activeFetches > 0;
+
+    // Accounts whose tokens are known-bad. They get skipped by EnsureYear /
+    // RefreshAll so a single broken token doesn't burn the polling loop.
+    // Cleared by ClearAuthExpired() after a successful re-auth.
+    private readonly HashSet<AccountId> _authExpired = [];
+
+    public bool IsAuthExpired(AccountId account) => _authExpired.Contains(account);
+
+    public void ClearAuthExpired(AccountId account) => _authExpired.Remove(account);
 
     private readonly AccountManager _accounts;
     private readonly ProviderRegistry _providers;
@@ -82,6 +96,7 @@ public sealed class CalendarCache
         {
             var stream = _streams[key];
             if (stream.State is YearStreamState.Loading) continue;
+            if (_authExpired.Contains(key.Account)) continue;
             // The calendar may have been removed or deselected since the stream
             // was loaded — fall back to a synthetic CalendarInfo to keep state
             // consistent if so (we just won't tag events with a fresh color).
@@ -128,6 +143,8 @@ public sealed class CalendarCache
     {
         foreach (var account in _accounts.Ids)
         {
+            if (_authExpired.Contains(account)) continue;
+
             foreach (var cal in _calendars.GetFor(account))
             {
                 if (!cal.Selected) continue;
@@ -174,9 +191,29 @@ public sealed class CalendarCache
         stream.State = YearStreamState.Loading;
         _activeFetches++;
         FetchingChanged?.Invoke();
+        bool succeeded = false;
         stream.LoadingTask = DoSync(account, cal, year, stream, startGen);
-        try { await stream.LoadingTask; }
-        catch { /* state already set to Stale by DoSync */ }
+        try
+        {
+            await stream.LoadingTask;
+            succeeded = true;
+        }
+        catch (AccountAuthExpiredException ex)
+        {
+            // Mark the whole account as expired so the polling loop and any
+            // follow-up Request() calls skip its streams entirely. Without
+            // this, a stale token sends us through stream → fail → DataRefreshed
+            // → Request → EnsureYear → stream loop on every UI refresh.
+            if (_authExpired.Add(account))
+            {
+                Log.Error("Sync", ex, $"auth expired for {account}");
+                AccountAuthExpired?.Invoke(account);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Sync", ex, $"sync failed for {account} cal={cal.Id} year={year}");
+        }
         finally
         {
             stream.LoadingTask = null;
@@ -184,7 +221,10 @@ public sealed class CalendarCache
             FetchingChanged?.Invoke();
         }
 
-        if (startGen == _generation)
+        // Only notify when we actually changed the snapshot. Firing DataRefreshed
+        // on failure used to loop: subscribers re-Request, EnsureYear sees Stale,
+        // launches a fresh sync that fails the same way.
+        if (succeeded && startGen == _generation)
             DataRefreshed?.Invoke([year]);
     }
 

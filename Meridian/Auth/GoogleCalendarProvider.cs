@@ -17,7 +17,10 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
     }
 
     public async Task<AccountId> AddAccountAsync(CancellationToken ct = default) =>
-        await GoogleOAuthClient.AuthorizeAsync(ct);
+        await GoogleOAuthClient.AuthorizeAsync(ct: ct);
+
+    public async Task<AccountId> ReauthenticateAccountAsync(AccountId id, CancellationToken ct = default) =>
+        await GoogleOAuthClient.AuthorizeAsync(loginHint: id.Email, ct: ct);
 
     public Task RevokeAccountAsync(AccountId id, CancellationToken ct = default) =>
         GoogleOAuthClient.RevokeAsync(id, ct);

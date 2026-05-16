@@ -43,7 +43,10 @@ public static class GoogleOAuthClient
     private static readonly HttpClient _http = new();
 
     // Runs full PKCE browser flow, saves token, returns AccountId.
-    public static async Task<AccountId> AuthorizeAsync(CancellationToken ct = default)
+    // When loginHint is non-null Google pre-selects that account and skips the
+    // chooser — used for re-auth ("session expired for X, re-login") so the
+    // user doesn't have to spot their own email in the picker.
+    public static async Task<AccountId> AuthorizeAsync(string? loginHint = null, CancellationToken ct = default)
     {
         var verifier    = GenerateCodeVerifier();
         var challenge   = GenerateCodeChallenge(verifier);
@@ -55,7 +58,7 @@ public static class GoogleOAuthClient
         listener.Start();
 
         var state   = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
-        var authUrl = BuildAuthUrl(challenge, state, redirectUri);
+        var authUrl = BuildAuthUrl(challenge, state, redirectUri, loginHint);
         Process.Start(new ProcessStartInfo(authUrl) { UseShellExecute = true });
 
         var code  = await WaitForCodeAsync(listener, state, ct);
@@ -71,11 +74,11 @@ public static class GoogleOAuthClient
     public static async Task<string> GetAccessTokenAsync(AccountId id, CancellationToken ct = default)
     {
         var token = TokenStore.Load(id)
-            ?? throw new InvalidOperationException($"No saved token for {id}");
+            ?? throw new AccountAuthExpiredException(id, "no saved token");
 
         if (!token.IsExpired) return token.AccessToken;
 
-        var refreshed = await RefreshAsync(token.RefreshToken, ct);
+        var refreshed = await RefreshAsync(id, token.RefreshToken, ct);
         TokenStore.Save(id, refreshed);
         return refreshed.AccessToken;
     }
@@ -103,7 +106,7 @@ public static class GoogleOAuthClient
             ?? throw new InvalidOperationException("Could not resolve email from userinfo");
     }
 
-    private static async Task<OAuthToken> RefreshAsync(string refreshToken, CancellationToken ct)
+    private static async Task<OAuthToken> RefreshAsync(AccountId id, string refreshToken, CancellationToken ct)
     {
         var resp = await _http.PostAsync(TokenEndpoint, new FormUrlEncodedContent([
             new("client_id",     GoogleSecrets.ClientId),
@@ -111,7 +114,20 @@ public static class GoogleOAuthClient
             new("refresh_token", refreshToken),
             new("grant_type",    "refresh_token"),
         ]), ct);
-        resp.EnsureSuccessStatusCode();
+
+        // Google answers with 400 + {"error":"invalid_grant"} when the refresh
+        // token is no longer usable — most commonly the 7-day expiry on apps
+        // still in Testing publishing status, but also revoked consent or a
+        // deleted account. Surface this as a typed signal so the caches can
+        // stop hammering and the UI can prompt for re-auth.
+        if (!resp.IsSuccessStatusCode)
+        {
+            string body = "";
+            try { body = await resp.Content.ReadAsStringAsync(ct); } catch { }
+            if ((int)resp.StatusCode == 400 && body.Contains("invalid_grant", StringComparison.Ordinal))
+                throw new AccountAuthExpiredException(id, $"refresh: invalid_grant ({body})");
+            resp.EnsureSuccessStatusCode();
+        }
 
         var tr = await resp.Content.ReadFromJsonAsync(OAuthJsonContext.Default.TokenResponse, ct)
             ?? throw new InvalidOperationException("Empty token response");
@@ -170,19 +186,29 @@ public static class GoogleOAuthClient
         }
     }
 
-    private static string BuildAuthUrl(string challenge, string state, string redirectUri)
+    private static string BuildAuthUrl(string challenge, string state, string redirectUri, string? loginHint)
     {
         var scope = Uri.EscapeDataString(string.Join(" ", Scopes));
-        return $"{AuthEndpoint}" +
-               $"?client_id={Uri.EscapeDataString(GoogleSecrets.ClientId)}" +
-               $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
-               $"&response_type=code" +
-               $"&scope={scope}" +
-               $"&code_challenge={challenge}" +
-               $"&code_challenge_method=S256" +
-               $"&state={Uri.EscapeDataString(state)}" +
-               $"&access_type=offline" +
-               $"&prompt=select_account%20consent";
+        // With a login_hint we skip the account picker and only ask for consent
+        // (which Google won't re-prompt for if the user already consented and
+        // the refresh token simply expired — the browser round-trip stays fast).
+        var prompt = loginHint is null ? "select_account%20consent" : "consent";
+
+        var url = $"{AuthEndpoint}" +
+                  $"?client_id={Uri.EscapeDataString(GoogleSecrets.ClientId)}" +
+                  $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
+                  $"&response_type=code" +
+                  $"&scope={scope}" +
+                  $"&code_challenge={challenge}" +
+                  $"&code_challenge_method=S256" +
+                  $"&state={Uri.EscapeDataString(state)}" +
+                  $"&access_type=offline" +
+                  $"&prompt={prompt}";
+
+        if (loginHint is not null)
+            url += $"&login_hint={Uri.EscapeDataString(loginHint)}";
+
+        return url;
     }
 
     private static string GenerateCodeVerifier() =>
