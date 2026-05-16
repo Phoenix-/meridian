@@ -67,4 +67,29 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial uint SendInput(uint cInputs,
         [In] INPUT[] pInputs, int cbSize);
+
+    // FlashWindowEx — paints the taskbar button amber (and optionally flashes
+    // the caption) until the window is brought to the foreground. On modern
+    // Windows the default user setting is "highlight, don't blink", so the
+    // button stays statically lit; older builds and accessibility configs
+    // honour dwFlashCount/dwTimeout literally.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct FLASHWINFO
+    {
+        public uint cbSize;
+        public nint hwnd;
+        public uint dwFlags;
+        public uint uCount;
+        public uint dwTimeout;
+    }
+
+    internal const uint FLASHW_STOP      = 0;
+    internal const uint FLASHW_CAPTION   = 0x1;
+    internal const uint FLASHW_TRAY      = 0x2;
+    internal const uint FLASHW_ALL       = FLASHW_CAPTION | FLASHW_TRAY;
+    internal const uint FLASHW_TIMERNOFG = 0xC; // flash until window comes to foreground
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool FlashWindowEx(ref FLASHWINFO pwfi);
 }
