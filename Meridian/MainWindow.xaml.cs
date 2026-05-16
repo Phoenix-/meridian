@@ -212,6 +212,13 @@ public sealed partial class MainWindow : Window
             // re-apply padding on the next dispatcher tick once insets settle.
             DispatcherQueue.TryEnqueue(() => { if (!_closed) UpdateTitleBarPadding(); });
 
+            // While minimized, AppWindow.Size/Position report the icon-strip geometry
+            // (~160x32 at position -32000,-32000). Skip the recalculation so neither
+            // _isMaximized nor _normalBounds get poisoned by minimized geometry —
+            // otherwise closing from a minimized state saves garbage bounds.
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (NativeMethods.IsIconic(hwnd)) return;
+
             // OverlappedPresenter cast is broken in AOT — detect maximized via display work area.
             var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
                 AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
@@ -449,9 +456,15 @@ public sealed partial class MainWindow : Window
 
     private void SaveWindowState()
     {
-        // When maximized, AppWindow.Size/Position report the maximized geometry.
-        // Save the last known normal bounds so we can restore correctly after un-maximizing.
-        var (w, h, x, y) = _isMaximized && _normalBounds != default
+        // When maximized or minimized, AppWindow.Size/Position do not report normal bounds
+        // (maximized geometry, or the -32000 off-screen icon strip for minimized).
+        // Fall back to the last known normal bounds; if we have none, skip the save
+        // entirely rather than persist garbage that would shrink the window on next launch.
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var minimized = NativeMethods.IsIconic(hwnd);
+        if ((_isMaximized || minimized) && _normalBounds == default) return;
+
+        var (w, h, x, y) = (_isMaximized || minimized) && _normalBounds != default
             ? _normalBounds
             : (AppWindow.Size.Width, AppWindow.Size.Height, AppWindow.Position.X, AppWindow.Position.Y);
 
