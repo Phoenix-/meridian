@@ -29,12 +29,17 @@ internal static class DiskCache
         catch { return null; }
     }
 
-    public static void WriteViewState(string view, DateTime date)
+    public static void WriteViewState(string view, DateTime date, TimeSpan? focusTime)
     {
         try
         {
             EnsureDir();
-            var data = new ViewStateData { View = view, Date = date };
+            var data = new ViewStateData
+            {
+                View = view,
+                Date = date,
+                FocusTimeTicks = focusTime?.Ticks,
+            };
             using var stream = File.Create(ViewStatePath);
             JsonSerializer.Serialize(stream, data, DiskCacheJsonContext.Default.ViewStateData);
         }

@@ -251,6 +251,22 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _dispatcher.TryEnqueue(Refresh);
     }
 
+    // First timed (non-all-day) event whose Start falls inside [from, to), or null.
+    // Used by view-switch heuristics to focus the new view's scroll on something useful
+    // when the source view had no time-of-day notion (Month).
+    public DateTime? GetFirstTimedEventStart(DateTime from, DateTime to)
+    {
+        var events = _events.Request(from, to);
+        DateTime? best = null;
+        foreach (var ev in events)
+        {
+            if (ev.IsAllDay) continue;
+            if (ev.Start < from || ev.Start >= to) continue;
+            if (best == null || ev.Start < best) best = ev.Start;
+        }
+        return best;
+    }
+
     private void ApplyCurrent(DateTime from, DateTime to)
     {
         var events = _events.Request(from, to);

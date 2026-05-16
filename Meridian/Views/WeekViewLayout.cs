@@ -171,4 +171,10 @@ public static class WeekViewLayout
     }
 
     public static double TimeToY(TimeSpan time) => time.TotalHours * HourHeight;
+
+    public static TimeSpan YToTime(double y)
+    {
+        double hours = Math.Clamp(y / HourHeight, 0, 24);
+        return TimeSpan.FromHours(hours);
+    }
 }
