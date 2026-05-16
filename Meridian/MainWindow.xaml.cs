@@ -57,6 +57,18 @@ public sealed partial class MainWindow : Window
         MeridianToastActivator.Invoked += OnToastInvoked;
         Closed += (_, _) => MeridianToastActivator.Invoked -= OnToastInvoked;
 
+        // Stop the reminder flash as soon as the user actually attends to
+        // the window. FLASHW_TIMERNOFG should auto-stop when we hit the
+        // foreground, but Activated fires reliably on every CodeActivated
+        // transition (incl. alt-tab back from a minimized state) and acts
+        // as belt-and-suspenders against the rare cases where the shell
+        // doesn't.
+        Activated += (_, e) =>
+        {
+            if (e.WindowActivationState != WindowActivationState.Deactivated)
+                TaskbarFlasher.Stop();
+        };
+
         // Diagnostic toast buttons stay hidden unless a marker file exists.
         // Create `%APPDATA%\Meridian\diag.enabled` (empty file) to reveal
         // them — useful for validating the toast pipeline on a new machine
@@ -106,6 +118,11 @@ public sealed partial class MainWindow : Window
                 // used by shipping Win32 apps for the same scenario.
                 var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
                 ForceForeground(hwnd);
+                // The user attended to the reminder via the toast; clear the
+                // taskbar indicator explicitly. Activated will fire too, but
+                // Stop() is idempotent and surfacing it here keeps the intent
+                // local to the click handler.
+                TaskbarFlasher.Stop();
 
                 if (targetDate is { } date)
                 {

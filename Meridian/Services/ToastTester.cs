@@ -33,6 +33,7 @@ internal static class ToastTester
                 var notifier = ToastNotificationManager.CreateToastNotifier(ToastSetup.ResolvedAumid);
                 notifier.Show(new ToastNotification(BuildXml("[show] Meridian test")));
                 Log.Write("Toast", "test/show: Show() returned");
+                App.MainWindow?.DispatcherQueue.TryEnqueue(TaskbarFlasher.Start);
             }
             catch (Exception ex)
             {
@@ -60,6 +61,25 @@ internal static class ToastTester
             };
             notifier.AddToSchedule(toast);
             Log.Write("Toast", "test/sched: AddToSchedule returned");
+
+            // The test path bypasses ReminderScheduler (the whole point of
+            // this button is to exercise WNP delivery in isolation), but
+            // that also bypasses the flash arming the real scheduler does.
+            // Fire a parallel local timer so the diagnostic button can
+            // visually verify the taskbar-flash wiring too.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(delay);
+                    Log.Write("Toast", "test/sched: flash armed");
+                    App.MainWindow?.DispatcherQueue.TryEnqueue(TaskbarFlasher.Start);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Toast", ex, "ToastTester.ScheduleIn flash");
+                }
+            });
         }
         catch (Exception ex)
         {

@@ -54,7 +54,13 @@ internal sealed class ReminderScheduler
     private readonly CalendarCache _events;
     private readonly DispatcherQueue _dispatcher;
     private readonly DispatcherQueueTimer _timer;
+    private readonly DispatcherQueueTimer _flashTimer;
     private readonly MissedRemindersTracker _missed = new();
+    // Last fireAt the flash timer was armed for. Recomputing on every
+    // RescheduleCore pass and re-arming unconditionally would risk dropping
+    // a flash if a pass briefly sees no desired entries; tracking it lets us
+    // skip work when the next fireAt hasn't changed.
+    private DateTime? _flashArmedFor;
 
     public ReminderScheduler(CalendarCache events, DispatcherQueue dispatcher)
     {
@@ -67,6 +73,14 @@ internal sealed class ReminderScheduler
         _timer.IsRepeating = true;
         _timer.Tick += (_, _) => RescheduleCore();
         _timer.Start();
+
+        // Single-shot timer; Interval is reset by ArmFlashTimer before each
+        // Start(). We cannot rely on the toast firing to tell us anything —
+        // WNP delivers it without notifying the process — so we mirror the
+        // schedule locally and fire the taskbar flash on our own clock.
+        _flashTimer = _dispatcher.CreateTimer();
+        _flashTimer.IsRepeating = false;
+        _flashTimer.Tick += (_, _) => OnFlashTimerFired();
     }
 
     public void Reschedule() => _dispatcher.TryEnqueue(RescheduleCore);
@@ -237,11 +251,70 @@ internal sealed class ReminderScheduler
             // dedupes against future passes.
             if (missed.Count > 0)
                 ShowMissedSummary(notifier, missed);
+
+            // Arm the taskbar flash for the next future fireAt. WNP fires
+            // toasts itself but does not notify our process, so we mirror its
+            // schedule on a local timer purely to drive the flash.
+            ArmFlashTimer(desired, now);
         }
         catch (Exception ex)
         {
             Log.Error("Toast", ex, "reschedule");
         }
+    }
+
+    // Picks the soonest future fireAt across all desired entries and arms
+    // _flashTimer to fire then. Called at the end of every RescheduleCore so
+    // the timer always reflects the latest desired set — events added, moved,
+    // or removed since last pass shift the target accordingly.
+    //
+    // If the same fireAt is still the earliest, we skip the re-arm (avoids
+    // a tiny window where Stop+Start could race a tick that was about to
+    // fire). If desired is empty or all fireAt's are in the past, the timer
+    // is stopped — RescheduleCore already classified those into either
+    // PastGrace or missed.
+    private void ArmFlashTimer(Dictionary<string, DesiredEntry> desired, DateTime now)
+    {
+        DateTime? next = null;
+        foreach (var (_, d) in desired)
+        {
+            if (d.FireAt <= now) continue;
+            if (next is null || d.FireAt < next) next = d.FireAt;
+        }
+
+        if (next is null)
+        {
+            if (_flashArmedFor is not null)
+            {
+                _flashTimer.Stop();
+                _flashArmedFor = null;
+            }
+            return;
+        }
+
+        if (_flashArmedFor == next) return;
+
+        var delay = next.Value - now;
+        // Clamp to a small positive interval — DispatcherQueueTimer requires
+        // a strictly positive Interval and we already filtered out past fireAts,
+        // but the subtraction can land on near-zero for a fireAt that's about
+        // to happen "right now".
+        if (delay < TimeSpan.FromMilliseconds(50))
+            delay = TimeSpan.FromMilliseconds(50);
+
+        _flashTimer.Stop();
+        _flashTimer.Interval = delay;
+        _flashTimer.Start();
+        _flashArmedFor = next;
+    }
+
+    private void OnFlashTimerFired()
+    {
+        _flashArmedFor = null;
+        TaskbarFlasher.Start();
+        // Pump a reconcile so the next fireAt gets armed. RescheduleCore is
+        // cheap on the steady state (no diff, no logging).
+        RescheduleCore();
     }
 
     private void ShowMissedSummary(ToastNotifier notifier, List<MissedEntry> missed)
@@ -288,6 +361,10 @@ internal sealed class ReminderScheduler
                 Group = MissedGroup,
             });
             _missed.MarkShown(missed.Select(m => m.Key));
+            // Catch-up surfaced — flash the taskbar so a user who's been
+            // away from the keyboard sees the persistent indicator even
+            // after the toast itself slides away into Action Center.
+            TaskbarFlasher.Start();
             Log.Write("Toast", $"missed: surfaced {missed.Count} reminders (preview: '{title}')");
         }
         catch (Exception ex)
