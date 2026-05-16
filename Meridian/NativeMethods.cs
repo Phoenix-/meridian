@@ -1,4 +1,7 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+
+[assembly: DisableRuntimeMarshalling]
 
 namespace Meridian;
 
@@ -92,4 +95,64 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool FlashWindowEx(ref FLASHWINFO pwfi);
+
+    // ── Taskbar overlay icon (ITaskbarList3 + GDI for HICON construction) ────
+
+    internal const uint CLSCTX_INPROC_SERVER = 0x1;
+
+    [LibraryImport("ole32.dll")]
+    internal static partial int CoCreateInstance(
+        in Guid rclsid, nint pUnkOuter, uint dwClsContext, in Guid riid, out nint ppv);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ICONINFO
+    {
+        [MarshalAs(UnmanagedType.Bool)] public bool fIcon;
+        public uint xHotspot;
+        public uint yHotspot;
+        public nint hbmMask;
+        public nint hbmColor;
+    }
+
+    // BITMAPINFOHEADER inlined — CreateDIBSection only reads up to biClrUsed
+    // for 32bpp BI_RGB, so we omit the trailing colour table.
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BITMAPINFO
+    {
+        public uint biSize;
+        public int  biWidth;
+        public int  biHeight;
+        public ushort biPlanes;
+        public ushort biBitCount;
+        public uint biCompression;
+        public uint biSizeImage;
+        public int  biXPelsPerMeter;
+        public int  biYPelsPerMeter;
+        public uint biClrUsed;
+        public uint biClrImportant;
+    }
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetDC(nint hWnd);
+
+    [LibraryImport("user32.dll")]
+    internal static partial int ReleaseDC(nint hWnd, nint hDC);
+
+    [LibraryImport("gdi32.dll")]
+    internal static partial nint CreateDIBSection(
+        nint hdc, ref BITMAPINFO pbmi, uint iUsage, out nint ppvBits, nint hSection, uint dwOffset);
+
+    [LibraryImport("gdi32.dll")]
+    internal static partial nint CreateBitmap(int nWidth, int nHeight, uint cPlanes, uint cBitsPerPel, nint lpvBits);
+
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DeleteObject(nint hObject);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint CreateIconIndirect(ref ICONINFO piconinfo);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool DestroyIcon(nint hIcon);
 }

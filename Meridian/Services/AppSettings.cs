@@ -12,4 +12,9 @@ internal static class AppSettings
     // reminders summary surfaces) and the main window isn't already focused.
     // Stops on window activation or toast click.
     public const bool FlashTaskbarOnReminder = true;
+
+    // Paint a coloured dot on the taskbar button while a timed event is in
+    // progress, in the calendar's colour. Complements the reminder flash —
+    // the flash fires *at* reminder time, the overlay shows event *state*.
+    public const bool ShowOngoingEventOverlay = true;
 }
