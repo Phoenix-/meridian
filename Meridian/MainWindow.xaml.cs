@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     private readonly AccountManager _accountManager;
     private bool _isMaximized;
     private bool _restoreMaximized;
+    private bool _closed;
     private (int W, int H, int X, int Y) _normalBounds;
 
     public MainWindow(ProviderRegistry providers)
@@ -201,12 +202,15 @@ public sealed partial class MainWindow : Window
 
     private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
     {
+        // Changed can fire during teardown (e.g. un-maximize before close); Content is gone by then.
+        if (_closed) return;
+
         UpdateTitleBarPadding();
         if (args.DidSizeChange)
         {
             // After max<->restore, AppWindow fires Changed before TitleBar.RightInset updates;
             // re-apply padding on the next dispatcher tick once insets settle.
-            DispatcherQueue.TryEnqueue(UpdateTitleBarPadding);
+            DispatcherQueue.TryEnqueue(() => { if (!_closed) UpdateTitleBarPadding(); });
 
             // OverlappedPresenter cast is broken in AOT — detect maximized via display work area.
             var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
@@ -448,6 +452,7 @@ public sealed partial class MainWindow : Window
     {
         // AppWindow.Changed can still fire after Closed, when Window.Content has
         // already been torn down — accessing it then throws COMException.
+        _closed = true;
         AppWindow.Changed -= OnAppWindowChanged;
         ViewModel.Dispose();
     }
