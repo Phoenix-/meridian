@@ -182,15 +182,11 @@ internal sealed class ReminderScheduler
                     if (fireAt <= now - MissedWindow) continue;
                     if (_missed.WasShown(eventKey)) continue;
 
-                    // Diagnostic for the "duplicate after fresh delivery" race:
-                    // we want to see, for every missed candidate, how stale
-                    // fireAt is and whether actual happened to contain the tag.
-                    // Two reconcile passes seconds apart can disagree on the
-                    // latter (WNP cleans the queue lazily after firing).
-                    Log.Write("Toast",
-                        $"  ? miss candidate '{e.Title}' fireAt={fireAt:HH:mm:ss} " +
-                        $"deltaNow={(now - fireAt).TotalSeconds:F1}s " +
-                        $"actualHasTag={actual.ContainsKey(tag)} actualCount={actual.Count}");
+                    // If we ever handed this tag to WNP, "absent from actual"
+                    // means "WNP delivered and cleaned up", not "we never
+                    // knew about it". Without this check we'd duplicate every
+                    // delivered toast as a missed-summary on the next pass.
+                    if (_missed.WasScheduled(tag)) continue;
 
                     // Pick the earliest unmet reminder as the event's
                     // representative — that's the one with the most lead-time
@@ -223,6 +219,7 @@ internal sealed class ReminderScheduler
                 {
                     var toast = BuildScheduledToast(d.Event, d.Minutes, d.FireAt, d.Group, tag);
                     notifier.AddToSchedule(toast);
+                    _missed.MarkScheduled(tag, d.FireAt);
                     added++;
                     Log.Write("Toast",
                         $"  + scheduled '{d.Event.Title}' fireAt={d.FireAt:yyyy-MM-dd HH:mm} (minus {d.Minutes}min)");
@@ -251,6 +248,9 @@ internal sealed class ReminderScheduler
             // dedupes against future passes.
             if (missed.Count > 0)
                 ShowMissedSummary(notifier, missed);
+
+            // Coalesced write for any MarkScheduled calls above.
+            _missed.Flush();
 
             // Arm the taskbar flash for the next future fireAt. WNP fires
             // toasts itself but does not notify our process, so we mirror its
