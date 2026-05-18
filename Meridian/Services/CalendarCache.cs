@@ -243,8 +243,12 @@ public sealed class CalendarCache
             if (stream.SyncToken is { } token && stream.WindowStartUtc == windowStart && stream.WindowEndUtc == windowEnd)
             {
                 result = await provider.IncrementalSyncEventsAsync(account, cal.Id, token, defaults);
-                if (result.SyncTokenExpired)
+                if (result.SyncTokenExpired || result.MasterRecurrenceSeen)
                 {
+                    // SyncTokenExpired: server forgot our token (HTTP 410).
+                    // MasterRecurrenceSeen: incremental returned a series master
+                    // instead of expanded instances — only a fresh window query
+                    // with singleEvents=true gets us the instances back.
                     result = await provider.InitialSyncEventsAsync(account, cal.Id, windowStart, windowEnd, defaults);
                     if (startGen != _generation) return;
                     stream.Events.Clear();

@@ -24,6 +24,7 @@ internal class EventDto
     [JsonPropertyName("start")]       public EventTime? Start { get; set; }
     [JsonPropertyName("end")]         public EventTime? End { get; set; }
     [JsonPropertyName("reminders")]   public ReminderInfo? Reminders { get; set; }
+    [JsonPropertyName("recurrence")]  public List<string>? Recurrence { get; set; }
 }
 
 internal class ReminderInfo
@@ -103,12 +104,17 @@ internal partial class GoogleApiJsonContext : JsonSerializerContext { }
 // Upserts are events to insert/replace by Id. CancelledIds are tombstones to
 // remove from the local cache. NextSyncToken is what to persist for the next
 // incremental call. SyncTokenExpired = true means caller must perform initial
-// sync; in that case the other fields are empty.
+// sync; in that case the other fields are empty. MasterRecurrenceSeen = true
+// means at least one returned item carried a `recurrence` rule (i.e. is the
+// master of a series rather than a single instance) — Google does this under
+// singleEvents=true on incremental sync after a new series is created, and
+// the caller must re-run InitialSyncEventsAsync to get the expanded instances.
 public readonly record struct EventSyncResult(
     List<CalendarEvent> Upserts,
     List<string> CancelledIds,
     string? NextSyncToken,
-    bool SyncTokenExpired);
+    bool SyncTokenExpired,
+    bool MasterRecurrenceSeen);
 
 public sealed class GoogleApiClient(AccountId id)
 {
@@ -129,8 +135,7 @@ public sealed class GoogleApiClient(AccountId id)
                       $"&timeMax={Uri.EscapeDataString(to.ToUniversalTime().ToString("o"))}";
         // orderBy=startTime is incompatible with sync tokens, so we omit it and
         // let the caller sort. Same query shape will be used for incremental.
-        var (upserts, cancelled, nextSync, expired) = await PageSyncAsync(baseUrl, defaultPopupMinutes, ct);
-        return new EventSyncResult(upserts, cancelled, nextSync, expired);
+        return await PageSyncAsync(baseUrl, defaultPopupMinutes, ct);
     }
 
     // Incremental sync using a previously-stored token. If Google returns 410
@@ -152,6 +157,7 @@ public sealed class GoogleApiClient(AccountId id)
         var cancelled = new List<string>();
         string? pageToken = null;
         string? nextSyncToken = null;
+        bool masterRecurrenceSeen = false;
 
         do
         {
@@ -162,7 +168,7 @@ public sealed class GoogleApiClient(AccountId id)
             using var resp = await _http.SendAsync(req, ct);
 
             if (resp.StatusCode == System.Net.HttpStatusCode.Gone)
-                return new EventSyncResult([], [], null, true);
+                return new EventSyncResult([], [], null, true, false);
 
             await EnsureSuccessOrAuthExpiredAsync(resp, ct);
             var list = await resp.Content.ReadFromJsonAsync(GoogleApiJsonContext.Default.EventList, ct);
@@ -173,6 +179,18 @@ public sealed class GoogleApiClient(AccountId id)
                 if (item.Status == "cancelled")
                 {
                     cancelled.Add(item.Id);
+                    continue;
+                }
+
+                // A `recurrence` array means this is the master of a series.
+                // Under singleEvents=true Google should be returning expanded
+                // instances instead, but on incremental sync of a newly-created
+                // series it sometimes returns the master once. Signal the
+                // caller to refresh by initial sync rather than persisting an
+                // unexpanded master as if it were a one-off event.
+                if (item.Recurrence is { Count: > 0 })
+                {
+                    masterRecurrenceSeen = true;
                     continue;
                 }
 
@@ -202,7 +220,7 @@ public sealed class GoogleApiClient(AccountId id)
         }
         while (pageToken is not null);
 
-        return new EventSyncResult(upserts, cancelled, nextSyncToken, false);
+        return new EventSyncResult(upserts, cancelled, nextSyncToken, false, masterRecurrenceSeen);
     }
 
     // Fetches all calendars (own + shared + subscribed) visible to this account.
