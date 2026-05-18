@@ -475,9 +475,20 @@ public sealed partial class MainWindow : Window
 
     private void OnTodayClick(object sender, RoutedEventArgs e)
     {
-        ViewModel.NavigateToToday();
-        UpdateDateLabel();
-        SaveCurrentViewState();
+        // For timed views, also re-center the scroll on "now" — otherwise the
+        // user lands on today's date but at whatever hour they were scrolled to.
+        // Re-navigate through NavigateDay/Week with an explicit focus so the
+        // source-view focus (priority 1 in ResolveFocusTime) is bypassed.
+        switch (ContentFrame.Content)
+        {
+            case DayView:   NavigateDay(DateTime.Today, DateTime.Now.TimeOfDay);  break;
+            case WeekView:  NavigateWeek(DateTime.Today, DateTime.Now.TimeOfDay); break;
+            default:
+                ViewModel.NavigateToToday();
+                UpdateDateLabel();
+                SaveCurrentViewState();
+                break;
+        }
     }
 
     private void OnNextClick(object sender, RoutedEventArgs e)
