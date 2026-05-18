@@ -287,23 +287,41 @@ public sealed partial class MainWindow : Window
         var scale = root.RasterizationScale;
         if (scale <= 0) scale = 1.0;
 
+        // System caption band starts at (WinW - RightInset). After a taskbar-icon
+        // restore, AppWindow.Changed fires twice in quick succession: first with
+        // RightInset still at the iconified value (~60), then again once the
+        // real caption-button strip has been laid out (~136). Between those two
+        // events, our RightButtons may have already been laid out at its
+        // pre-resize X — so the passthrough rect we compute lands under the
+        // system caption strip and eats hit-testing for the left two buttons.
+        // Clamp the rects' right edge to the current system-band boundary so
+        // we can never cover any caption button no matter what the layout is.
+        int systemBandLeftPx = AppWindow.Size.Width - AppWindow.TitleBar.RightInset;
+
         var rects = new List<Windows.Graphics.RectInt32>(2);
-        AddPassthroughRect(rects, LeftButtons, scale);
-        AddPassthroughRect(rects, RightButtons, scale);
+        AddPassthroughRect(rects, LeftButtons, scale, systemBandLeftPx);
+        AddPassthroughRect(rects, RightButtons, scale, systemBandLeftPx);
 
         src.SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, rects.ToArray());
     }
 
-    private void AddPassthroughRect(List<Windows.Graphics.RectInt32> rects, FrameworkElement element, double scale)
+    private void AddPassthroughRect(List<Windows.Graphics.RectInt32> rects, FrameworkElement element,
+        double scale, int systemBandLeftPx)
     {
         if (element.ActualWidth <= 0 || element.ActualHeight <= 0) return;
         var transform = element.TransformToVisual(null);
         var topLeft = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
-        rects.Add(new Windows.Graphics.RectInt32(
-            (int)Math.Floor(topLeft.X * scale),
-            (int)Math.Floor(topLeft.Y * scale),
-            (int)Math.Ceiling(element.ActualWidth * scale),
-            (int)Math.Ceiling(element.ActualHeight * scale)));
+
+        int x = (int)Math.Floor(topLeft.X * scale);
+        int y = (int)Math.Floor(topLeft.Y * scale);
+        int w = (int)Math.Ceiling(element.ActualWidth * scale);
+        int h = (int)Math.Ceiling(element.ActualHeight * scale);
+
+        // Never let our passthrough cross into the system caption-button band.
+        if (x + w > systemBandLeftPx) w = systemBandLeftPx - x;
+        if (w <= 0) return;
+
+        rects.Add(new Windows.Graphics.RectInt32(x, y, w, h));
     }
 
     private async Task InitAsync()
