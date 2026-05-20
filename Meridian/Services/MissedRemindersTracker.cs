@@ -21,8 +21,13 @@ namespace Meridian.Services;
 // file settles around ~15-20 KB — small enough to load on every reconcile.
 internal sealed class MissedRemindersTracker
 {
-    // Missed-toast dedupe lives only as long as it might still be relevant.
-    private static readonly TimeSpan ShownRetention = TimeSpan.FromDays(1);
+    // Shown-marker retention must outlive ReminderScheduler.MissedWindow so a
+    // missed-summary we surfaced doesn't get re-shown when the same event is
+    // still present in SnapshotRange. Previously 1 day, which silently expired
+    // the dedupe long before the event itself dropped out of the missed
+    // window — producing repeat "missed N reminders" toasts for a batch we'd
+    // already shown days earlier. 8 days mirrors ScheduledRetention.
+    private static readonly TimeSpan ShownRetention = TimeSpan.FromDays(8);
 
     // Scheduled-tag memory must outlive MissedWindow in ReminderScheduler so
     // an old fireAt being mistaken for "never scheduled" can be ruled out by

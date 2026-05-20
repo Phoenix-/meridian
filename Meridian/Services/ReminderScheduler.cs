@@ -45,6 +45,31 @@ internal sealed class ReminderScheduler
     // PastGrace because the missed-reminder flow is for "laptop was closed
     // when this event fired" — useful for a few days, irrelevant after a week.
     private static readonly TimeSpan MissedWindow = TimeSpan.FromDays(7);
+    // Only surface a missed reminder while the underlying event itself is
+    // still "today" in the user's local calendar. Past that, the event has
+    // come and gone — a catch-up toast is just noise. Bounded by event Start
+    // (not fireAt) so a "-10min" reminder doesn't get a longer grace than a
+    // "-0min" one for the same event.
+    //
+    // "Today" rolls over at 04:00 local, not midnight: an event at 23:55
+    // missed at 00:01 should still surface. The window runs from the most
+    // recent 04:00 boundary up to the next one.
+    //
+    // Example of the bug this prevents: a fresh incremental sync after a
+    // long offline period drops a batch of last-week events into the cache;
+    // none of them were ever MarkScheduled by this process, so they sail
+    // past the WasScheduled filter and get aggregated into a single
+    // "missed N reminders" toast — surfacing a week of irrelevant history
+    // moments after a normal upcoming-event toast just fired.
+    private static readonly TimeSpan DayBoundary = TimeSpan.FromHours(4);
+
+    private static bool IsMissedFreshEnough(DateTime eventStart, DateTime now)
+    {
+        var todayStart = now.TimeOfDay >= DayBoundary
+            ? now.Date + DayBoundary
+            : now.Date.AddDays(-1) + DayBoundary;
+        return eventStart >= todayStart;
+    }
     // Maximum number of individual entries listed inside the summary toast
     // body. The full count still shows in the title.
     private const int MissedPreviewCount = 3;
@@ -141,6 +166,11 @@ internal sealed class ReminderScheduler
             // not just at start"). Per-event dedupe key matches the missed
             // tracker's storage key (event-stable, no minutes).
             var missedByEvent = new Dictionary<string, MissedEntry>(StringComparer.Ordinal);
+            // Event-keys we've decided not to surface (too stale) but want to
+            // silently mark shown so subsequent passes don't keep re-checking
+            // them — and so they don't bundle with a future, fresh missed
+            // reminder. Disjoint from missedByEvent by construction.
+            var staleMissedKeys = new List<string>();
             int total = events.Count, allDay = 0, noRem = 0, noEmail = 0;
 
             foreach (var e in events)
@@ -187,6 +217,17 @@ internal sealed class ReminderScheduler
                     // knew about it". Without this check we'd duplicate every
                     // delivered toast as a missed-summary on the next pass.
                     if (_missed.WasScheduled(tag)) continue;
+
+                    // Drop events that no longer fall on today's date — past
+                    // that point, a catch-up toast is just noise. Mark shown
+                    // so the next pass doesn't re-check (and so we don't
+                    // aggregate them with a fresh missed reminder that DOES
+                    // warrant a toast).
+                    if (!IsMissedFreshEnough(e.Start, now))
+                    {
+                        staleMissedKeys.Add(eventKey);
+                        continue;
+                    }
 
                     // Pick the earliest unmet reminder as the event's
                     // representative — that's the one with the most lead-time
@@ -248,6 +289,15 @@ internal sealed class ReminderScheduler
             // dedupes against future passes.
             if (missed.Count > 0)
                 ShowMissedSummary(notifier, missed);
+
+            // Suppress stale-but-otherwise-eligible missed candidates from
+            // showing up on future passes. ShowMissedSummary already calls
+            // MarkShown for the surfaced batch; this covers the silent drop.
+            if (staleMissedKeys.Count > 0)
+            {
+                _missed.MarkShown(staleMissedKeys);
+                Log.Write("Toast", $"missed: suppressed {staleMissedKeys.Count} stale candidates (start before today's 04:00)");
+            }
 
             // Coalesced write for any MarkScheduled calls above.
             _missed.Flush();
