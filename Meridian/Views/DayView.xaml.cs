@@ -455,8 +455,8 @@ public sealed partial class DayView : Page, ICalendarView
         SizeChangedEventHandler? handler = null;
         handler = (_, _) =>
         {
-            if (sv.ActualHeight <= 0) return;
             sv.SizeChanged -= handler;
+            if (sv.ActualHeight <= 0) return;
             DoScroll();
         };
         sv.SizeChanged += handler;
