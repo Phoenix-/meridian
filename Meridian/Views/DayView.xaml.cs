@@ -443,9 +443,23 @@ public sealed partial class DayView : Page, ICalendarView
         }
 
         if (sv.ActualHeight > 0)
+        {
             DoScroll();
-        else
-            sv.SizeChanged += (_, _) => DoScroll();
+            return;
+        }
+
+        // SizeChanged fires repeatedly during window restore / cold start.
+        // Wait for a valid height, then unsubscribe — otherwise stale handlers
+        // accumulate across Rebuilds and yank VerticalOffset back to the
+        // focus target every time the user tries to scroll.
+        SizeChangedEventHandler? handler = null;
+        handler = (_, _) =>
+        {
+            if (sv.ActualHeight <= 0) return;
+            sv.SizeChanged -= handler;
+            DoScroll();
+        };
+        sv.SizeChanged += handler;
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject parent)
