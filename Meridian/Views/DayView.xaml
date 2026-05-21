@@ -42,6 +42,7 @@
 
         <!-- Timed grid -->
         <ScrollViewer Grid.Row="2"
+                      x:Name="TimedScrollViewer"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
             <Grid>

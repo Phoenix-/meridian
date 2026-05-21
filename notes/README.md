@@ -8,3 +8,4 @@ the code so future-you can find the guard.
 
 - [google-recurring-master-on-incremental.md](google-recurring-master-on-incremental.md) — incremental sync returns a recurring-series master instead of expanded instances; force initial re-sync when seen.
 - [titlebar-passthrough-clamp.md](titlebar-passthrough-clamp.md) — custom-titlebar passthrough rects must be clamped to `WinW − RightInset` or they kill system caption buttons after taskbar-restore.
+- [aot-visualtreehelper-before-layout.md](aot-visualtreehelper-before-layout.md) — `VisualTreeHelper` walks return null in NativeAOT before first layout; name elements in XAML instead of searching for them.

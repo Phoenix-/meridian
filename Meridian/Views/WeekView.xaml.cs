@@ -25,6 +25,8 @@ public sealed partial class WeekView : Page, ICalendarView
     private Ellipse? _nowDot;
     private DateTime _nowLineDate;
     private DispatcherTimer? _nowTimer;
+    private SizeChangedEventHandler? _scrollSizeChanged;
+    private ScrollViewer? _scrollSizeChangedTarget;
 
     // Accent colors for events per account (cycles through list)
     private static readonly Color[] EventColors =
@@ -102,8 +104,8 @@ public sealed partial class WeekView : Page, ICalendarView
 
     public TimeSpan? GetFocusTime()
     {
-        var sv = FindScrollViewer(this);
-        if (sv == null || sv.ActualHeight <= 0) return null;
+        var sv = TimedScrollViewer;
+        if (sv.ActualHeight <= 0) return null;
         double centerY = sv.VerticalOffset + sv.ActualHeight / 2;
         return WeekViewLayout.YToTime(centerY);
     }
@@ -473,8 +475,17 @@ public sealed partial class WeekView : Page, ICalendarView
 
     private void ScrollToTime()
     {
-        var sv = FindScrollViewer(this);
-        if (sv == null) return;
+        var sv = TimedScrollViewer;
+
+        // Drop any handler armed by a previous Rebuild — otherwise stale handlers
+        // accumulate across Rebuilds and yank VerticalOffset back to the focus
+        // target every time the user tries to scroll.
+        if (_scrollSizeChanged != null && _scrollSizeChangedTarget != null)
+        {
+            _scrollSizeChangedTarget.SizeChanged -= _scrollSizeChanged;
+            _scrollSizeChanged = null;
+            _scrollSizeChangedTarget = null;
+        }
 
         void DoScroll()
         {
@@ -497,30 +508,23 @@ public sealed partial class WeekView : Page, ICalendarView
             return;
         }
 
-        // SizeChanged fires repeatedly during window restore / cold start.
-        // Wait for a valid height, then unsubscribe — otherwise stale handlers
-        // accumulate across Rebuilds and yank VerticalOffset back to the
-        // focus target every time the user tries to scroll.
+        // SizeChanged fires repeatedly during window restore / cold start with
+        // ActualHeight still <= 0. Wait until we see a real height, then scroll
+        // and unsubscribe. Detaching before the height check would lose the
+        // single shot if the first tick is still zero-height, and the next
+        // Rebuild (same date/content) wouldn't re-arm it.
         SizeChangedEventHandler? handler = null;
         handler = (_, _) =>
         {
-            sv.SizeChanged -= handler;
             if (sv.ActualHeight <= 0) return;
+            sv.SizeChanged -= handler;
+            _scrollSizeChanged = null;
+            _scrollSizeChangedTarget = null;
             DoScroll();
         };
+        _scrollSizeChanged = handler;
+        _scrollSizeChangedTarget = sv;
         sv.SizeChanged += handler;
-    }
-
-    private static ScrollViewer? FindScrollViewer(DependencyObject parent)
-    {
-        for (int i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
-            if (child is ScrollViewer sv) return sv;
-            var found = FindScrollViewer(child);
-            if (found != null) return found;
-        }
-        return null;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
