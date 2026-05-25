@@ -61,7 +61,7 @@
                         <!-- "!" badge: visible when at least one account has an expired session. -->
                         <Border x:Name="AccountsBadge" Visibility="Collapsed"
                                 Width="10" Height="10" CornerRadius="5"
-                                Background="#E81123"
+                                Background="{StaticResource AppErrorBrush}"
                                 HorizontalAlignment="Right" VerticalAlignment="Top"
                                 Margin="0,-2,-2,0">
                             <TextBlock Text="!" Foreground="White" FontSize="8" FontWeight="Bold"
@@ -88,7 +88,7 @@
                                                 <!-- Warning icon: click to re-auth. Only visible when token is bad. -->
                                                 <Button Grid.Column="1" Content="&#xE7BA;" FontFamily="Segoe MDL2 Assets"
                                                         Margin="8,0,0,0" Tag="{x:Bind Id}"
-                                                        Foreground="#E81123"
+                                                        Foreground="{StaticResource AppErrorBrush}"
                                                         Visibility="{x:Bind IsExpired, Mode=OneWay}"
                                                         Click="OnReauthAccountClick"
                                                         ToolTipService.ToolTip="Сессия истекла — войдите снова"/>

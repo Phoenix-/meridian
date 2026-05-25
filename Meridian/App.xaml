@@ -11,6 +11,10 @@
             <converters:TimeConverter x:Key="TimeConverter"/>
             <converters:NotNullToBoolConverter x:Key="NotNullToBoolConverter"/>
             <converters:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter"/>
+
+            <!-- Brand "warning red" — same hue as AppColors.Now in C# palette. -->
+            <Color x:Key="AppErrorColor">#FFEA4335</Color>
+            <SolidColorBrush x:Key="AppErrorBrush" Color="{StaticResource AppErrorColor}"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

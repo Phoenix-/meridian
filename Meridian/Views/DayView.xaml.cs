@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using Meridian.Models;
+using Meridian.Theme;
 using Meridian.ViewModels;
 using Windows.UI;
 
@@ -17,17 +18,6 @@ public sealed partial class DayView : Page, ICalendarView
     private TimeSpan? _initialFocusTime;
     private CalendarSnapshot? _lastSnapshot;
     private int? _lastContentHash;
-
-    private static readonly Color[] EventColors =
-    [
-        Color.FromArgb(255, 26, 115, 232),
-        Color.FromArgb(255, 52, 168, 83),
-        Color.FromArgb(255, 234, 67, 53),
-        Color.FromArgb(255, 251, 188, 4),
-        Color.FromArgb(255, 103, 58, 183),
-    ];
-
-    private static readonly Color TaskColor = Color.FromArgb(255, 70, 130, 180);
 
     private List<(WeekEventBlock Block, EventLayout Layout)> _eventBlocks = [];
     private SizeChangedEventHandler? _columnSizeChanged;
@@ -150,7 +140,7 @@ public sealed partial class DayView : Page, ICalendarView
         DayHeaderStack.Children.Clear();
 
         bool isToday = _date.Date == DateTime.Today;
-        var accentBrush = new SolidColorBrush(Color.FromArgb(255, 26, 115, 232));
+        var accentBrush = new SolidColorBrush(AppColors.Accent);
         var normalBrush = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"];
         var highBrush   = (Brush)Application.Current.Resources["SystemControlForegroundBaseHighBrush"];
 
@@ -214,7 +204,7 @@ public sealed partial class DayView : Page, ICalendarView
         foreach (var t in _lastSnapshot!.Tasks.Where(t => t.Due.HasValue && t.Due.Value == DateOnly.FromDateTime(_date.Date)))
         {
             var chip = new MonthEventChip();
-            chip.Apply(new EventChipData("☑ " + t.Title, TaskColor, null, null, true));
+            chip.Apply(new EventChipData("☑ " + t.Title, AppColors.Task, null, null, true));
 
             int row = AllDayGrid.RowDefinitions.Count;
             AllDayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
@@ -301,7 +291,7 @@ public sealed partial class DayView : Page, ICalendarView
         {
             var highlight = new Rectangle
             {
-                Fill = new SolidColorBrush(Color.FromArgb(10, 26, 115, 232)),
+                Fill = new SolidColorBrush(AppColors.AccentWashDay),
                 Width = 2000,
                 Height = totalHeight,
             };
@@ -332,14 +322,14 @@ public sealed partial class DayView : Page, ICalendarView
                 X1 = 0, X2 = 2000,
                 Y1 = nowY, Y2 = nowY,
                 StrokeThickness = 2,
-                Stroke = new SolidColorBrush(Color.FromArgb(255, 234, 67, 53)),
+                Stroke = new SolidColorBrush(AppColors.Now),
             };
             DayCanvas.Children.Add(nowLine);
 
             var dot = new Ellipse
             {
                 Width = 10, Height = 10,
-                Fill = new SolidColorBrush(Color.FromArgb(255, 234, 67, 53)),
+                Fill = new SolidColorBrush(AppColors.Now),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
                 Margin = new Thickness(-5, nowY - 5, 0, 0),
@@ -395,7 +385,7 @@ public sealed partial class DayView : Page, ICalendarView
                         X1 = 0, X2 = 2000,
                         Y1 = y, Y2 = y,
                         StrokeThickness = 2,
-                        Stroke = new SolidColorBrush(Color.FromArgb(80, 234, 67, 53)),
+                        Stroke = new SolidColorBrush(AppColors.NowFaint),
                         IsHitTestVisible = false,
                     };
                     DayCanvas.Children.Add(overlay);
@@ -480,14 +470,4 @@ public sealed partial class DayView : Page, ICalendarView
 
 
 
-    private Color GetAccountColor(string? email, Dictionary<string, int> index)
-    {
-        if (email == null) return EventColors[0];
-        if (!index.TryGetValue(email, out int i))
-        {
-            i = index.Count % EventColors.Length;
-            index[email] = i;
-        }
-        return EventColors[i];
-    }
 }

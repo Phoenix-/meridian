@@ -1,4 +1,5 @@
 using Meridian.Models;
+using Meridian.Theme;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -9,8 +10,6 @@ namespace Meridian.Views;
 
 public sealed partial class WeekRowControl : UserControl
 {
-    private static readonly Color TaskColor = Color.FromArgb(255, 70, 130, 180);
-
     private sealed record SpanSegment(
         string Title, Color Color, Color? TextColor,
         int ColStart, int ColEnd,   // 0-based Mon..Sun, both inclusive
@@ -27,7 +26,6 @@ public sealed partial class WeekRowControl : UserControl
         DateTime displayMonth,
         IReadOnlyList<CalendarEvent> events,
         IReadOnlyList<TaskItem> tasks,
-        Color[] eventColors,
         Dictionary<string, int> accountIndex,
         Brush separatorBrush)
     {
@@ -123,7 +121,7 @@ public sealed partial class WeekRowControl : UserControl
             var day = task.Due.Value.ToDateTime(TimeOnly.MinValue).Date;
             int col = (day - weekStart).Days;
             if (col is >= 0 and < 7)
-                dayItems[col].Add(new EventChipData("☑ " + task.Title, TaskColor, null, null, true));
+                dayItems[col].Add(new EventChipData("☑ " + task.Title, AppColors.Task, null, null, true));
         }
 
         // ── Step 5: background borders + day cells ────────────────────────────
@@ -140,7 +138,7 @@ public sealed partial class WeekRowControl : UserControl
                 BorderThickness = new Thickness(0, 0, 1, 1),
                 BorderBrush = separatorBrush,
                 Background = isCurrentMonth
-                    ? new SolidColorBrush(Color.FromArgb(15, 26, 115, 232))
+                    ? new SolidColorBrush(AppColors.AccentWashMonth)
                     : new SolidColorBrush(Colors.Transparent),
             };
             var bgClip = new RectangleGeometry();

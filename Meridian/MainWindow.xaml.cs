@@ -1,10 +1,12 @@
 using System.Collections.Specialized;
 using System.Runtime.InteropServices;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Windowing;
 using Windows.Graphics;
+using Windows.UI;
 using Meridian.Auth;
 using Meridian.Diagnostics;
 using Meridian.Models;
@@ -35,6 +37,12 @@ public sealed partial class MainWindow : Window
 
         AppWindow.Changed += OnAppWindowChanged;
         UpdateTitleBarPadding();
+        ApplyCaptionButtonColors();
+        // ActualTheme follows OS theme changes when RequestedTheme is Default.
+        // Caption-button foreground isn't auto-themed when ExtendsContentIntoTitleBar
+        // is on — without this, the min/max/close glyphs go nearly invisible in light mode.
+        if (Content is FrameworkElement fe)
+            fe.ActualThemeChanged += (_, _) => ApplyCaptionButtonColors();
 
         RestoreWindowState();
         AppWindow.Closing += (_, _) => SaveWindowState();
@@ -269,6 +277,53 @@ public sealed partial class MainWindow : Window
             8);
 
         UpdateTitleBarPassthrough();
+    }
+
+    // With ExtendsContentIntoTitleBar = true the caption-button strip is drawn by
+    // AppWindow.TitleBar (raw Color properties), not by XAML — so it doesn't follow
+    // ActualTheme on its own. Pull the same WinUI theme brushes the default caption
+    // template uses (WindowCaptionForeground, WindowCaptionButtonBackgroundPointerOver,
+    // …) and feed their Color values into the AppWindowTitleBar.Button*Color setters.
+    // Re-apply on init and whenever ActualTheme flips.
+    //
+    // Brush definitions: WindowsAppSDK generic.xaml — WindowCaption* are StaticResource
+    // aliases of SystemControl*Brush, which have proper Light/Dark ThemeDictionaries.
+    private void ApplyCaptionButtonColors()
+    {
+        var theme = (Content as FrameworkElement)?.ActualTheme ?? ElementTheme.Default;
+        var tb = AppWindow.TitleBar;
+
+        // Backdrop is acrylic — keep the bands transparent so it shows through.
+        tb.ButtonBackgroundColor         = Colors.Transparent;
+        tb.ButtonInactiveBackgroundColor = Colors.Transparent;
+
+        var fg         = ResolveThemeBrushColor("WindowCaptionForeground",         theme);
+        var fgInactive = ResolveThemeBrushColor("WindowCaptionForegroundDisabled", theme);
+        var hoverBg    = ResolveThemeBrushColor("WindowCaptionButtonBackgroundPointerOver", theme);
+        var pressedBg  = ResolveThemeBrushColor("WindowCaptionButtonBackgroundPressed",     theme);
+
+        tb.ButtonForegroundColor         = fg;
+        tb.ButtonHoverForegroundColor    = fg;
+        tb.ButtonPressedForegroundColor  = fg;
+        tb.ButtonInactiveForegroundColor = fgInactive;
+
+        tb.ButtonHoverBackgroundColor    = hoverBg;
+        tb.ButtonPressedBackgroundColor  = pressedBg;
+    }
+
+    // Application.Resources.ThemeDictionaries holds Light/Dark/HighContrast variants
+    // that ThemeResource lookup would pick from. Code-behind lookup via Resources[key]
+    // does not follow Window.ActualTheme, so resolve the dictionary explicitly.
+    private static Color ResolveThemeBrushColor(string key, ElementTheme theme)
+    {
+        var dicts = Application.Current.Resources.ThemeDictionaries;
+        var themeKey = theme == ElementTheme.Light ? "Light" : "Default"; // Default == Dark in WinUI
+        if (dicts.TryGetValue(themeKey, out var d) && d is ResourceDictionary rd && rd[key] is SolidColorBrush b)
+            return b.Color;
+        // Fallback to whatever Resources[key] resolves to — at worst, the Default theme.
+        if (Application.Current.Resources[key] is SolidColorBrush fallback)
+            return fallback.Color;
+        return theme == ElementTheme.Light ? Colors.Black : Colors.White;
     }
 
     private void OnTitleBarLoaded(object sender, RoutedEventArgs e) => UpdateTitleBarPassthrough();

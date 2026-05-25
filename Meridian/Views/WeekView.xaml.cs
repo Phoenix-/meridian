@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using Meridian.Models;
+using Meridian.Theme;
 using Meridian.ViewModels;
 using Windows.Foundation;
 using Windows.UI;
@@ -27,18 +28,6 @@ public sealed partial class WeekView : Page, ICalendarView
     private DispatcherTimer? _nowTimer;
     private SizeChangedEventHandler? _scrollSizeChanged;
     private ScrollViewer? _scrollSizeChangedTarget;
-
-    // Accent colors for events per account (cycles through list)
-    private static readonly Color[] EventColors =
-    [
-        Color.FromArgb(255, 26, 115, 232),   // Google blue
-        Color.FromArgb(255, 52, 168, 83),    // Google green
-        Color.FromArgb(255, 234, 67, 53),    // Google red
-        Color.FromArgb(255, 251, 188, 4),    // Google yellow (dark text)
-        Color.FromArgb(255, 103, 58, 183),   // purple
-    ];
-
-    private static readonly Color TaskColor = Color.FromArgb(255, 70, 130, 180);
 
     public WeekView()
     {
@@ -176,7 +165,7 @@ public sealed partial class WeekView : Page, ICalendarView
                 FontSize = 11,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Foreground = isToday
-                    ? new SolidColorBrush(Color.FromArgb(255, 26, 115, 232))
+                    ? new SolidColorBrush(AppColors.Accent)
                     : (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"],
             };
 
@@ -186,7 +175,7 @@ public sealed partial class WeekView : Page, ICalendarView
                 CornerRadius = new CornerRadius(16),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Background = isToday
-                    ? new SolidColorBrush(Color.FromArgb(255, 26, 115, 232))
+                    ? new SolidColorBrush(AppColors.Accent)
                     : new SolidColorBrush(Colors.Transparent),
                 Child = new TextBlock
                 {
@@ -273,7 +262,7 @@ public sealed partial class WeekView : Page, ICalendarView
                 }
 
                 var chip = new MonthEventChip();
-                chip.Apply(new EventChipData("☑ " + task.Title, TaskColor, null, null, true));
+                chip.Apply(new EventChipData("☑ " + task.Title, AppColors.Task, null, null, true));
                 Grid.SetColumn(chip, col);
                 Grid.SetRow(chip, r);
                 AllDayGrid.Children.Add(chip);
@@ -304,7 +293,7 @@ public sealed partial class WeekView : Page, ICalendarView
     // ── Timed grid ───────────────────────────────────────────────────────────
 
     // Per-column data needed to reposition events when column width changes.
-    private record DayColumnData(List<CalendarEvent> Events, List<(WeekEventBlock Block, double CascadeLeft)> EventBlocks, Color[] Colors);
+    private record DayColumnData(List<CalendarEvent> Events, List<(WeekEventBlock Block, double CascadeLeft)> EventBlocks);
     private readonly List<DayColumnData> _dayColumns = [];
 
     private void BuildTimedGrid()
@@ -375,7 +364,7 @@ public sealed partial class WeekView : Page, ICalendarView
             // Today highlight
             if (day.Date == DateTime.Today)
             {
-                var highlight = new Rectangle { Fill = new SolidColorBrush(Color.FromArgb(12, 26, 115, 232)), Width = 2000, Height = totalHeight };
+                var highlight = new Rectangle { Fill = new SolidColorBrush(AppColors.AccentWashWeek), Width = 2000, Height = totalHeight };
                 Canvas.SetLeft(highlight, 0);
                 Canvas.SetTop(highlight, 0);
                 dayCanvas.Children.Add(highlight);
@@ -386,13 +375,13 @@ public sealed partial class WeekView : Page, ICalendarView
             if (day.Date == DateTime.Today)
             {
                 double nowY = WeekViewLayout.TimeToY(DateTime.Now.TimeOfDay);
-                var nowLine = new Line { X1 = 0, X2 = 2000, Y1 = nowY, Y2 = nowY, StrokeThickness = 2, Stroke = new SolidColorBrush(Color.FromArgb(255, 234, 67, 53)) };
+                var nowLine = new Line { X1 = 0, X2 = 2000, Y1 = nowY, Y2 = nowY, StrokeThickness = 2, Stroke = new SolidColorBrush(AppColors.Now) };
                 dayCanvas.Children.Add(nowLine);
 
                 var dot = new Ellipse
                 {
                     Width = 10, Height = 10,
-                    Fill = new SolidColorBrush(Color.FromArgb(255, 234, 67, 53)),
+                    Fill = new SolidColorBrush(AppColors.Now),
                     HorizontalAlignment = HorizontalAlignment.Left,
                     VerticalAlignment = VerticalAlignment.Top,
                     Margin = new Thickness(-5, nowY - 5, 0, 0),
@@ -424,7 +413,7 @@ public sealed partial class WeekView : Page, ICalendarView
                 eventBlocks.Add((block, layout.Left));
             }
 
-            var colData = new DayColumnData(dayEvents, eventBlocks, []);
+            var colData = new DayColumnData(dayEvents, eventBlocks);
             _dayColumns.Add(colData);
 
             // Faint now-line overlay sits above event blocks so the marker stays visible
@@ -437,7 +426,7 @@ public sealed partial class WeekView : Page, ICalendarView
                     X1 = 0, X2 = 2000,
                     Y1 = y, Y2 = y,
                     StrokeThickness = 2,
-                    Stroke = new SolidColorBrush(Color.FromArgb(80, 234, 67, 53)),
+                    Stroke = new SolidColorBrush(AppColors.NowFaint),
                     IsHitTestVisible = false,
                 };
                 dayCanvas.Children.Add(overlay);
@@ -538,16 +527,4 @@ public sealed partial class WeekView : Page, ICalendarView
     }
 
     private static Dictionary<string, int> BuildAccountIndex() => new();
-
-    private Color GetAccountColor(string? email, Dictionary<string, int> index)
-    {
-        if (email == null) return EventColors[0];
-        if (!index.TryGetValue(email, out int i))
-        {
-            i = index.Count % EventColors.Length;
-            index[email] = i;
-        }
-        return EventColors[i];
-    }
-
 }

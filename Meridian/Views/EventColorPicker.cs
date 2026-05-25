@@ -1,20 +1,11 @@
 using Meridian.Models;
+using Meridian.Theme;
 using Windows.UI;
 
 namespace Meridian.Views;
 
 internal static class EventColorPicker
 {
-    // Fallback palette indexed by account when no per-event/calendar color exists.
-    private static readonly Color[] AccountColors =
-    [
-        Color.FromArgb(255, 26, 115, 232),   // Google blue
-        Color.FromArgb(255, 52, 168, 83),    // Google green
-        Color.FromArgb(255, 234, 67, 53),    // Google red
-        Color.FromArgb(255, 251, 188, 4),    // Google yellow
-        Color.FromArgb(255, 103, 58, 183),   // purple
-    ];
-
     public static Color Pick(CalendarEvent ev, Dictionary<string, int> accountIndex)
     {
         if (TryParseHex(ev.CalendarColor, out var c)) return c;
@@ -37,13 +28,14 @@ internal static class EventColorPicker
 
     public static Color AccountColor(string? email, Dictionary<string, int> index)
     {
-        if (email == null) return AccountColors[0];
+        var palette = AppColors.EventPalette;
+        if (email == null) return palette[0];
         if (!index.TryGetValue(email, out int i))
         {
-            i = index.Count % AccountColors.Length;
+            i = index.Count % palette.Length;
             index[email] = i;
         }
-        return AccountColors[i];
+        return palette[i];
     }
 
     private static bool TryParseHex(string? hex, out Color color)

@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Meridian.Models;
 using Meridian.ViewModels;
-using Windows.UI;
 
 namespace Meridian.Views;
 
@@ -14,15 +13,6 @@ public sealed partial class MonthView : Page, ICalendarView
     private DateTime _date;
     private CalendarSnapshot? _lastSnapshot;
     private int? _lastContentHash;
-
-    internal static readonly Color[] EventColors =
-    [
-        Color.FromArgb(255, 26, 115, 232),
-        Color.FromArgb(255, 52, 168, 83),
-        Color.FromArgb(255, 234, 67, 53),
-        Color.FromArgb(255, 251, 188, 4),
-        Color.FromArgb(255, 103, 58, 183),
-    ];
 
     public MonthView()
     {
@@ -155,7 +145,7 @@ public sealed partial class MonthView : Page, ICalendarView
                 .ToList();
 
             var weekRow = new WeekRowControl();
-            weekRow.Build(weekStart, _date, weekEvents, weekTasks, EventColors, accountIndex, separatorBrush);
+            weekRow.Build(weekStart, _date, weekEvents, weekTasks, accountIndex, separatorBrush);
 
             Grid.SetRow(weekRow, w);
             CalendarGrid.Children.Add(weekRow);

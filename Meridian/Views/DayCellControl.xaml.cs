@@ -1,4 +1,5 @@
 using Meridian.Models;
+using Meridian.Theme;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -63,7 +64,7 @@ public sealed partial class DayCellControl : UserControl
 
         if (isToday)
         {
-            DateCircle.Background = new SolidColorBrush(Color.FromArgb(255, 26, 115, 232));
+            DateCircle.Background = new SolidColorBrush(AppColors.Accent);
             _dateText.Foreground = new SolidColorBrush(Colors.White);
         }
         else
