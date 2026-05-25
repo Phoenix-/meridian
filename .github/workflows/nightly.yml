@@ -49,13 +49,13 @@ jobs:
           echo "RELEASE_TAG=nightly" >> $env:GITHUB_ENV
           echo "RELEASE_NAME=Nightly $((Get-Date -Format 'yyyy-MM-dd'))" >> $env:GITHUB_ENV
 
-      - name: Delete previous nightly tag
+      - name: Delete previous nightly release and tag
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/git/refs/tags/$env:RELEASE_TAG" 2>&1 | Out-Host
-          if ($LASTEXITCODE -ne 0) { Write-Host "No previous tag to delete (ok on first run)." }
+          gh release delete $env:RELEASE_TAG --cleanup-tag --yes --repo $env:GITHUB_REPOSITORY 2>&1 | Out-Host
+          if ($LASTEXITCODE -ne 0) { Write-Host "No previous release/tag to delete (ok on first run)." }
           $LASTEXITCODE = 0
 
       - name: Update nightly release
