@@ -10,6 +10,18 @@
             "cwd": "${workspaceFolder}/Meridian",
             "stopAtEntry": false,
             "preLaunchTask": "build"
+        },
+        {
+            "name": "Attach to Meridian",
+            "type": "coreclr",
+            "request": "attach",
+            "processName": "Meridian.exe"
+        },
+        {
+            "name": "Attach to process (pick)",
+            "type": "coreclr",
+            "request": "attach",
+            "processId": "${command:pickProcess}"
         }
     ]
 }
