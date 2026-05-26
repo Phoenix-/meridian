@@ -18,6 +18,13 @@ public class CalendarEvent
     // the UI uses it for chip text; otherwise it auto-picks black or white.
     public string? CalendarTextColor { get; set; }
     public string? AccountEmail { get; set; }
+    // Human-readable title of the owning calendar (e.g. "Work", "Family").
+    // Stamped onto the event at sync time so the details flyout can show it
+    // without resolving CalendarId against the calendar list.
+    public string? CalendarTitle { get; set; }
+    // Direct link to the event in Google Calendar Web (the `htmlLink` field
+    // from the Events API). Used by the "Open in Google Calendar" action.
+    public string? HtmlLink { get; set; }
     // Minutes-before-start at which a popup reminder should fire. Populated from
     // Google's event.reminders.overrides (method=popup) when useDefault is false,
     // and from the owning calendar's defaultReminders otherwise. Empty/null = no

@@ -270,6 +270,7 @@ public sealed class CalendarCache
                 e.CalendarId = cal.Id;
                 e.CalendarColor = cal.BackgroundColor;
                 e.CalendarTextColor = cal.ForegroundColor;
+                e.CalendarTitle = cal.Title;
                 stream.Events[e.Id] = e;
             }
             foreach (var id in result.CancelledIds)

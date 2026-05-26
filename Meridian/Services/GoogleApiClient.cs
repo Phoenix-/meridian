@@ -25,6 +25,7 @@ internal class EventDto
     [JsonPropertyName("end")]         public EventTime? End { get; set; }
     [JsonPropertyName("reminders")]   public ReminderInfo? Reminders { get; set; }
     [JsonPropertyName("recurrence")]  public List<string>? Recurrence { get; set; }
+    [JsonPropertyName("htmlLink")]    public string? HtmlLink { get; set; }
 }
 
 internal class ReminderInfo
@@ -210,6 +211,7 @@ public sealed class GoogleApiClient(AccountId id)
                     CalendarId  = null,
                     Color       = item.ColorId,
                     AccountEmail = id.Email,
+                    HtmlLink    = item.HtmlLink,
                     ReminderMinutes = ResolveReminderMinutes(item.Reminders, defaultPopupMinutes),
                 });
             }

@@ -192,7 +192,7 @@ public sealed partial class DayView : Page, ICalendarView
             var color = EventColorPicker.Pick(ev, accountIndex);
             var textColor = EventColorPicker.PickText(ev);
             var chip = new MonthEventChip();
-            chip.Apply(new EventChipData(ev.Title, color, textColor, null, true));
+            chip.Apply(new EventChipData(ev.Title, color, textColor, null, true, ev));
 
             int row = AllDayGrid.RowDefinitions.Count;
             AllDayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });
@@ -364,7 +364,7 @@ public sealed partial class DayView : Page, ICalendarView
                     var color = EventColorPicker.Pick(layout.Event, accountIndex);
                     var textColor = EventColorPicker.PickText(layout.Event);
                     var block = new WeekEventBlock();
-                    block.Apply(layout.Event.Title, layout.Event.Start, layout.Event.End, color, textColor, layout.Height);
+                    block.Apply(layout.Event, color, textColor, layout.Height);
                     block.Width  = Math.Max(layout.Width, 20);
                     block.Height = layout.Height;
                     Canvas.SetTop(block, layout.Top);

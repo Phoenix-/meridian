@@ -112,7 +112,7 @@ public sealed partial class WeekRowControl : UserControl
             var textColor = EventColorPicker.PickText(ev);
             int col = (ev.Start.Date - weekStart).Days;
             if (col is >= 0 and < 7)
-                dayItems[col].Add(new EventChipData(ev.Title, color, textColor, ev.IsAllDay ? null : ev.Start, ev.IsAllDay));
+                dayItems[col].Add(new EventChipData(ev.Title, color, textColor, ev.IsAllDay ? null : ev.Start, ev.IsAllDay, ev));
         }
 
         foreach (var task in tasks)
