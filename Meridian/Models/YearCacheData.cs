@@ -7,21 +7,21 @@ namespace Meridian.Models;
 // at initial sync. If the window changes, the token is invalid and a fresh
 // initial sync is required.
 //
-// SchemaVersion guards us against silently using stale on-disk events when the
-// shape or fill-rules of a field change. The store treats a mismatch as a
-// cache miss (the file is also deleted) and the next sync rewrites it from
-// scratch. Bump when:
-//   * a new field on CalendarEvent depends on data the previous build didn't
-//     fetch (e.g. v2 added ReminderMinutes derived from calendar defaults +
-//     the reminders block — old caches have it null for ~all events).
-//   * an existing field changes semantics in a way old data can't be migrated.
+// SchemaHash guards us against silently using stale on-disk events when the
+// shape of a persisted field changes. It is derived at compile time from the
+// properties of CalendarEvent + this wrapper (see CacheSchemaGenerator), so any
+// add/remove/retype moves the hash automatically — no manual version bump to
+// forget. The store treats a mismatch as a cache miss (file is also deleted)
+// and the next sync rewrites it from scratch.
+[CacheSchema]
 public sealed class YearCacheData
 {
-    // Current schema (see comment above). Stored explicitly so a future
-    // change to the constant invalidates existing caches on startup.
-    public const int CurrentSchemaVersion = 2;
+    // The on-disk shape is the event shape plus this wrapper's own fields, so the
+    // guard combines both hashes. Stored explicitly so a shape change invalidates
+    // existing caches on startup.
+    public static string CurrentSchemaHash => SchemaHashes.CalendarEvent + SchemaHashes.YearCacheData;
 
-    public int SchemaVersion { get; set; }
+    public string? SchemaHash { get; set; }
 
     public string AccountId { get; set; } = "";   // "provider:email"
     public string CalendarId { get; set; } = "";
@@ -36,15 +36,23 @@ public sealed class YearCacheData
     public List<CalendarEvent> Events { get; set; } = [];
 }
 
+[CacheSchema]
 public sealed class TaskStoreData
 {
+    public static string CurrentSchemaHash => SchemaHashes.TaskItem + SchemaHashes.TaskStoreData;
+
+    public string? SchemaHash { get; set; }
     public DateTime SavedAtUtc { get; set; }
     // Key = account email
     public Dictionary<string, List<TaskItem>> TasksByAccount { get; set; } = [];
 }
 
+[CacheSchema]
 public sealed class CalendarListData
 {
+    public static string CurrentSchemaHash => SchemaHashes.CalendarInfo + SchemaHashes.CalendarListData;
+
+    public string? SchemaHash { get; set; }
     public string AccountId { get; set; } = "";
     public DateTime SavedAtUtc { get; set; }
     public List<CalendarInfo> Calendars { get; set; } = [];

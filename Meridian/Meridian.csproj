@@ -25,6 +25,16 @@
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
   </ItemGroup>
+
+  <!-- Compile-time schema-hash generator. OutputItemType=Analyzer plugs it into
+       the compiler as a source generator (not a runtime reference);
+       ReferenceOutputAssembly=false keeps its DLL out of our bin/. MSBuild
+       infers build order from this reference, so the generator is built first. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Meridian.SchemaGen\Meridian.SchemaGen.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
   <!-- Generate Secrets.g.cs from client_secret.json at build time -->
   <!-- SecretsJsonPath can be overridden via -p:SecretsJsonPath=... for CI -->
   <PropertyGroup>

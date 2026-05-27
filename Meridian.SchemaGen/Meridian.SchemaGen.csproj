@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Roslyn source generator. Runs at compile time only; never shipped in the
+       app's bin/. Must target netstandard2.0 (the TFM the C# compiler loads
+       analyzers under) regardless of the app's target framework. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pinned below the SDK's Roslyn (10.0.300 ships 4.14.x). A generator built
+         against an older Roslyn loads fine in a newer compiler; the reverse is
+         not true, so we deliberately stay conservative. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

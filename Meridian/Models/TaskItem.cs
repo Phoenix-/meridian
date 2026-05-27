@@ -1,5 +1,6 @@
 namespace Meridian.Models;
 
+[CacheSchema]
 public class TaskItem
 {
     public string Id { get; set; } = "";

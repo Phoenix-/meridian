@@ -1,5 +1,6 @@
 namespace Meridian.Models;
 
+[CacheSchema]
 public class CalendarEvent
 {
     public string Id { get; set; } = "";

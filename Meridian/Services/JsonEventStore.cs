@@ -24,12 +24,12 @@ public sealed class JsonEventStore : IEventStore
                 data = JsonSerializer.Deserialize(stream, StoreJsonContext.Default.YearCacheData);
 
             if (data is null) return null;
-            if (data.SchemaVersion != YearCacheData.CurrentSchemaVersion)
+            if (data.SchemaHash != YearCacheData.CurrentSchemaHash)
             {
                 // Stale schema — drop the file so the next sync writes a fresh
                 // copy with the current shape. Old data could pretend to be
-                // good (e.g. ReminderMinutes silently null on v1) and never
-                // self-correct via incremental sync.
+                // good (e.g. a field added after the cache was written stays
+                // null forever because incremental sync never revisits it).
                 TryDelete(path);
                 return null;
             }
@@ -50,7 +50,7 @@ public sealed class JsonEventStore : IEventStore
         {
             Directory.CreateDirectory(CacheDir);
             data.SavedAtUtc = DateTime.UtcNow;
-            data.SchemaVersion = YearCacheData.CurrentSchemaVersion;
+            data.SchemaHash = YearCacheData.CurrentSchemaHash;
             var account = AccountId.Parse(data.AccountId);
             using var stream = File.Create(FilePath(account, data.CalendarId, data.Year));
             JsonSerializer.Serialize(stream, data, StoreJsonContext.Default.YearCacheData);
