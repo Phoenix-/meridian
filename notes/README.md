@@ -11,3 +11,4 @@ the code so future-you can find the guard.
 - [aot-visualtreehelper-before-layout.md](aot-visualtreehelper-before-layout.md) — `VisualTreeHelper` walks return null in NativeAOT before first layout; name elements in XAML instead of searching for them.
 - [flyout-showat-needs-xamlroot-in-canvas.md](flyout-showat-needs-xamlroot-in-canvas.md) — `Flyout/MenuFlyout.ShowAt` throws `ArgumentException` for targets inside a `Canvas`; set `XamlRoot` from the target first.
 - [no-winrt-html-dom-parser.md](no-winrt-html-dom-parser.md) — no built-in WinRT HTML DOM parser for arbitrary strings (`Windows.Data.Html` is text-only); tokenize the tag subset by hand.
+- [dpi-awareness-manifest-custom-main.md](dpi-awareness-manifest-custom-main.md) — custom `Main` needs `PerMonitorV2` in app.manifest; without it, the bottom-right of the window goes dead to wheel/drag at >100% scale.
