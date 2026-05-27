@@ -14,7 +14,7 @@ public sealed partial class WeekRowControl : UserControl
         string Title, Color Color, Color? TextColor,
         int ColStart, int ColEnd,   // 0-based Mon..Sun, both inclusive
         bool IsFirst, bool IsLast,
-        int Lane);
+        int Lane, CalendarEvent Source);
 
     public WeekRowControl()
     {
@@ -83,7 +83,7 @@ public sealed partial class WeekRowControl : UserControl
             for (int c = colStart; c <= colEnd; c++)
                 laneOccupied[assigned][c] = true;
 
-            segments.Add(new SpanSegment(ev.Title, color, textColor, colStart, colEnd, isFirst, isLast, assigned));
+            segments.Add(new SpanSegment(ev.Title, color, textColor, colStart, colEnd, isFirst, isLast, assigned, ev));
         }
 
         int laneCount = laneOccupied.Count;
@@ -168,7 +168,7 @@ public sealed partial class WeekRowControl : UserControl
 
         foreach (var seg in segments)
         {
-            var band = MakeSpanBand(seg.Title, seg.Color, seg.TextColor, seg.IsFirst, seg.IsLast);
+            var band = MakeSpanBand(seg.Title, seg.Color, seg.TextColor, seg.IsFirst, seg.IsLast, seg.Source);
             Grid.SetColumn(band, seg.ColStart);
             Grid.SetColumnSpan(band, seg.ColEnd - seg.ColStart + 1);
             Grid.SetRow(band, 1 + seg.Lane);
@@ -176,12 +176,12 @@ public sealed partial class WeekRowControl : UserControl
         }
     }
 
-    private static Border MakeSpanBand(string title, Color color, Color? textColor, bool isFirst, bool isLast)
+    private static Border MakeSpanBand(string title, Color color, Color? textColor, bool isFirst, bool isLast, CalendarEvent source)
     {
         double leftR  = isFirst ? 3 : 0;
         double rightR = isLast  ? 3 : 0;
         var fg = textColor ?? EventColorPicker.PickReadable(color);
-        return new Border
+        var band = new Border
         {
             Background = new SolidColorBrush(color),
             CornerRadius = new CornerRadius(leftR, rightR, rightR, leftR),
@@ -197,6 +197,19 @@ public sealed partial class WeekRowControl : UserControl
                 TextWrapping = TextWrapping.NoWrap,
             } : null,
         };
+
+        band.Tapped += (_, e) =>
+        {
+            EventDetailsFlyout.Show(band, source);
+            e.Handled = true;
+        };
+        band.RightTapped += (_, e) =>
+        {
+            MonthEventChip.ShowContextMenu(band, source, e.GetPosition(band));
+            e.Handled = true;
+        };
+
+        return band;
     }
 
 }
