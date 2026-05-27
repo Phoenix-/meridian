@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
 using Meridian.Models;
@@ -73,7 +74,7 @@ public sealed partial class EventDetailsFlyout : UserControl
         if (ev.ReminderMinutes is { Count: > 0 })
         {
             RemindersStack.Visibility = Visibility.Visible;
-            foreach (var m in ev.ReminderMinutes)
+            foreach (var m in ev.ReminderMinutes.OrderByDescending(m => m))
                 RemindersStack.Children.Add(BuildReminderRow(m));
         }
 
