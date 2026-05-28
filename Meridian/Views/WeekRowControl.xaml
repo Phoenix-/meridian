@@ -5,9 +5,11 @@
 
     <!--
         Layout (built in code-behind):
-          Row 0 (Auto)    — DayCellControl date circles, one per column
-          Row 1..N (Auto) — span band lanes, one row per lane
-          Row N+1 (Star)  — DayCellControl chip stacks, one per column
+          Row 0 (Auto) — DayCellControl date circles, one per column
+          Row 1 (Star) — per-column DayCellControl.BodyPanel (band-reserve spacer + chips),
+                         plus a 7-column band overlay Grid on top that draws the continuous
+                         multi-day bands. Each day reserves only its own band height; the
+                         overlay positions bands at lane*laneHeight so they stay straight.
     -->
     <Grid x:Name="WeekGrid"/>
 

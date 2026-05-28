@@ -10,19 +10,31 @@ namespace Meridian.Views;
 
 /// <summary>
 /// Represents one day in the month grid.
-/// Visual parts (DateCircle, ChipsStack) are placed into the parent WeekRowControl's
-/// grid via AddToGrid() so they can occupy separate rows while sharing the same column.
+/// Visual parts (DateCircle, BodyPanel) are placed into the parent WeekRowControl's
+/// grid: DateCircle in the date row, BodyPanel in the body (Star) row, sharing one column.
+/// BodyPanel is a 2-row grid: a transparent band-reserve spacer on top (its height is set
+/// by the parent so this day's chips land below its own multi-day bands), then the chip
+/// stack filling the rest. The visible bands themselves are drawn by the parent as an
+/// overlay; the spacer only reserves vertical space.
 /// </summary>
 public sealed partial class DayCellControl : UserControl
 {
     public readonly Border DateCircle;
+    public readonly Grid BodyPanel;
     public readonly StackPanel ChipsStack;
 
+    private readonly Border _bandReserve;
     private readonly TextBlock _dateText;
     private List<MonthEventChip> _chips = [];
     private TextBlock? _overflowLabel;
     private int _totalCount;
+    private int _baseHiddenCount;   // multi-day bands covering this day that the parent hid
     private double _lastFitHeight = -1;
+    private DateTime _date;
+
+    /// Invoked when the user taps "+N ещё" — opens the full day. Set by the parent
+    /// week row; the cell only ever references up (no static subscription → no leak).
+    public Action<DateTime>? OnOverflowTap;
 
     public DayCellControl()
     {
@@ -50,6 +62,20 @@ public sealed partial class DayCellControl : UserControl
             Margin = new Thickness(2, 1, 2, 2),
         };
 
+        // Transparent spacer reserving this day's own band-block height (set by the parent
+        // via SetBandReserve). Height 0 by default → chips sit right under the date circle.
+        _bandReserve = new Border { Height = 0 };
+
+        BodyPanel = new Grid();
+        BodyPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        BodyPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        Grid.SetRow(_bandReserve, 0);
+        Grid.SetRow(ChipsStack, 1);
+        BodyPanel.Children.Add(_bandReserve);
+        BodyPanel.Children.Add(ChipsStack);
+
+        // ChipsStack sits in the Star row, so its ActualHeight is the space left after the
+        // band reserve — exactly the budget Refit needs.
         ChipsStack.SizeChanged += (_, args) =>
         {
             if (args.NewSize.Height > 0) Refit();
@@ -58,8 +84,21 @@ public sealed partial class DayCellControl : UserControl
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, Refit);
     }
 
+    /// Called by the parent week row once the cross-day band fit is known: reserves
+    /// <paramref name="reserveHeight"/> px above the chips for this day's visible bands,
+    /// and seeds the "+N ещё" count with bands the parent decided to hide for this day.
+    public void SetBandReserve(double reserveHeight, int baseHiddenCount)
+    {
+        _baseHiddenCount = baseHiddenCount;
+        if (_bandReserve.Height != reserveHeight)
+            _bandReserve.Height = reserveHeight;   // triggers a re-layout → ChipsStack.SizeChanged → Refit
+        _lastFitHeight = -1;
+        Refit();
+    }
+
     public void SetDate(DateTime date, bool isCurrentMonth, bool isToday)
     {
+        _date = date;
         _dateText.Text = date.Day.ToString();
 
         if (isToday)
@@ -99,6 +138,11 @@ public sealed partial class DayCellControl : UserControl
             Margin = new Thickness(2, 0, 0, 0),
             Visibility = Visibility.Collapsed,
         };
+        _overflowLabel.Tapped += (_, e) =>
+        {
+            OnOverflowTap?.Invoke(_date);
+            e.Handled = true;
+        };
         ChipsStack.Children.Add(_overflowLabel);
     }
 
@@ -135,7 +179,10 @@ public sealed partial class DayCellControl : UserControl
         }
 
         int shown = (int)(available / chipHeight);
-        if (shown < _totalCount)
+        // An overflow line is needed if some chips won't fit OR the parent already hid
+        // multi-day bands for this day — in both cases reserve a row for "+N ещё".
+        bool needOverflowLine = shown < _totalCount || _baseHiddenCount > 0;
+        if (needOverflowLine)
             shown = Math.Max(0, (int)((available - overflowHeight) / chipHeight));
         else
             shown = _totalCount;
@@ -143,7 +190,8 @@ public sealed partial class DayCellControl : UserControl
         for (int i = 0; i < _chips.Count; i++)
             _chips[i].Visibility = i < shown ? Visibility.Visible : Visibility.Collapsed;
 
-        int overflow = _totalCount - shown;
+        // "+N ещё" = hidden bands (decided by the parent) + chips that didn't fit.
+        int overflow = _baseHiddenCount + (_totalCount - shown);
         if (overflow > 0)
         {
             _overflowLabel.Text = $"+{overflow} ещё";

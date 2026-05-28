@@ -12,3 +12,4 @@ the code so future-you can find the guard.
 - [flyout-showat-needs-xamlroot-in-canvas.md](flyout-showat-needs-xamlroot-in-canvas.md) — `Flyout/MenuFlyout.ShowAt` throws `ArgumentException` for targets inside a `Canvas`; set `XamlRoot` from the target first.
 - [no-winrt-html-dom-parser.md](no-winrt-html-dom-parser.md) — no built-in WinRT HTML DOM parser for arbitrary strings (`Windows.Data.Html` is text-only); tokenize the tag subset by hand.
 - [dpi-awareness-manifest-custom-main.md](dpi-awareness-manifest-custom-main.md) — custom `Main` needs `PerMonitorV2` in app.manifest; without it, the bottom-right of the window goes dead to wheel/drag at >100% scale.
+- [month-view-band-overlay-layout.md](month-view-band-overlay-layout.md) — month-grid multi-day bands can't be shared `Grid` rows; use per-cell reserve spacer + a band overlay, atomic per week, single height budget. Verified against gCal.

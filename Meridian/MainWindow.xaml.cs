@@ -482,6 +482,9 @@ public sealed partial class MainWindow : Window
         return (date.Date, date.Date.AddDays(1));
     }
 
+    // Public entry point for views (e.g. month-view "+N ещё") to switch to the day view.
+    public void RequestNavigateDay(DateTime date) => NavigateDay(date);
+
     private void NavigateDay(DateTime? date = null, TimeSpan? explicitFocus = null)
     {
         var d = date ?? GetCurrentDate();
