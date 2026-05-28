@@ -2,6 +2,10 @@ namespace Meridian.UiTests.Fixtures;
 
 // Canonical file-system paths for the SUT. Kept in one place so a TFM bump
 // (e.g. net11) only needs editing here.
+//
+// The fixture launches Meridian with MERIDIAN_DATA_DIR set to a per-test temp
+// directory, so the test process and the user's real %APPDATA%\Meridian never
+// overlap. Path lookups inside that isolated dir go through `Under(root)`.
 internal static class MeridianPaths
 {
     public const string ProcessName = "Meridian";
@@ -15,10 +19,13 @@ internal static class MeridianPaths
         "Meridian", "bin", "Debug", "net10.0-windows10.0.19041.0", "win-x64",
         "Meridian.exe"));
 
-    public static string AppDataDir { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Meridian", "cache");
+    // Paths inside an isolated data dir. Mirrors AppPaths in the SUT.
+    public sealed record InDataDir(string Root)
+    {
+        public string Cache => Path.Combine(Root, "cache");
+        public string ViewStateJson => Path.Combine(Cache, "viewstate.json");
+        public string WindowStateJson => Path.Combine(Cache, "windowstate.json");
+    }
 
-    public static string ViewStateJson => Path.Combine(AppDataDir, "viewstate.json");
-    public static string WindowStateJson => Path.Combine(AppDataDir, "windowstate.json");
+    public static InDataDir Under(string root) => new(root);
 }

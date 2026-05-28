@@ -1,24 +1,29 @@
+using System.Diagnostics;
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.UIA3;
-using Meridian.UiTests.Helpers;
 using Xunit;
 
 namespace Meridian.UiTests.Fixtures;
 
-// Per-test fixture: ensures a clean Meridian process started in a known view
-// state, gives the test the main window, then tears everything down.
+// Per-test fixture: launches Meridian under an isolated data directory
+// (MERIDIAN_DATA_DIR), seeded with a known view state, and tears it all down.
 //
-// Pattern: IAsyncLifetime is the right xUnit hook because kill + launch are
-// naturally async (we WaitForExit and poll for the main window).
+// Why isolated: the SUT looks for cache/tokens/logs/viewstate under that env
+// var when set (see Meridian.Services.AppPaths). With a per-test temp root,
+// the test process never touches the user's real %APPDATA%\Meridian and can
+// safely run in parallel with the user's actual instance — no killing,
+// no shared file conflicts.
 //
-// The fixture is created PER TEST (NavigationTests instantiates it in its
-// own ctor wrapper) — UI tests must not share live state.
+// Pattern: IAsyncLifetime — kill+launch are naturally async and the dispose
+// path needs to wait for the SUT to exit before deleting the data dir.
 public sealed class MeridianAppFixture : IAsyncLifetime
 {
     private Application? _app;
+    private Process? _process;
     private UIA3Automation? _automation;
     private Window? _window;
+    private string? _dataDir;
 
     // The seeded starting view. Default is "Day" so a click on the "Месяц"
     // button is guaranteed to change the date label (Day uses `d MMMM yyyy`,
@@ -37,20 +42,27 @@ public sealed class MeridianAppFixture : IAsyncLifetime
                 "Run `dotnet build Calendar.sln -c Debug` first.",
                 MeridianPaths.DebugExe);
 
-        await ProcessHelpers.KillAllMeridianAsync();
+        // Fresh isolated data dir for this test run. The SUT will read/write
+        // here exclusively because we set MERIDIAN_DATA_DIR before launching.
+        _dataDir = Path.Combine(Path.GetTempPath(), "Meridian-uitests-" + Guid.NewGuid().ToString("N"));
+        var paths = MeridianPaths.Under(_dataDir);
 
-        // Wipe windowstate.json so the app uses default window size — keeps
-        // screenshot dimensions reproducible.
-        if (File.Exists(MeridianPaths.WindowStateJson))
-            File.Delete(MeridianPaths.WindowStateJson);
+        // Seed a known view (Day) so the test's "click Месяц" assertion has a
+        // guaranteed delta on the label format.
+        ViewState.Write(paths.ViewStateJson, SeedView, SeedDate);
+        // No windowstate.json → app uses default window size (reproducible).
 
-        ViewState.Write(SeedView, SeedDate);
+        var psi = new ProcessStartInfo(MeridianPaths.DebugExe) { UseShellExecute = false };
+        psi.Environment["MERIDIAN_DATA_DIR"] = _dataDir;
+        _process = Process.Start(psi) ?? throw new InvalidOperationException(
+            $"Failed to start {MeridianPaths.DebugExe}");
 
-        _app = Application.Launch(MeridianPaths.DebugExe);
+        _app = Application.Attach(_process);
         _automation = new UIA3Automation();
         _window = _app.GetMainWindow(_automation, TimeSpan.FromSeconds(15))
             ?? throw new InvalidOperationException(
-                "Main window did not appear within 15s. Check %APPDATA%\\Meridian\\error.log.");
+                "Main window did not appear within 15s. " +
+                $"Check {Path.Combine(_dataDir, "logs", "meridian.log")}.");
     }
 
     public async Task DisposeAsync()
@@ -58,14 +70,29 @@ public sealed class MeridianAppFixture : IAsyncLifetime
         try
         {
             _app?.Close();
-            // Give the WM time to flush; then guarantee exit.
             await Task.Delay(500);
         }
         catch { /* ignore — we're cleaning up */ }
         finally
         {
             _automation?.Dispose();
-            try { await ProcessHelpers.KillAllMeridianAsync(); } catch { /* best-effort */ }
+            try
+            {
+                if (_process != null && !_process.HasExited)
+                {
+                    _process.Kill(entireProcessTree: true);
+                    _process.WaitForExit(2000);
+                }
+                _process?.Dispose();
+            }
+            catch { /* best-effort */ }
+
+            // Best-effort cleanup of the isolated data dir. Windows can still
+            // hold a handle on the log file briefly after exit — swallow that.
+            if (_dataDir != null && Directory.Exists(_dataDir))
+            {
+                try { Directory.Delete(_dataDir, recursive: true); } catch { /* leak to %TEMP% */ }
+            }
         }
     }
 }

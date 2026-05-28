@@ -5,10 +5,11 @@ namespace Meridian.UiTests.Helpers;
 
 internal static class ProcessHelpers
 {
-    // Force-quits any running Meridian.exe and waits for the process(es) to
-    // actually exit before returning. Necessary before mutating viewstate.json
-    // — otherwise the still-alive process can flush its state over our write
-    // on shutdown.
+    // Force-quits ALL Meridian.exe processes on the machine. Not used by the
+    // default test flow — fixtures launch their own isolated process by PID
+    // and clean it up themselves (MERIDIAN_DATA_DIR isolates state, so the
+    // user's parallel instance is harmless). Kept here for emergency
+    // teardown in case a future test gets stuck holding a window.
     public static async Task KillAllMeridianAsync(TimeSpan? timeout = null)
     {
         var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(5));

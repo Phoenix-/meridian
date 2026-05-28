@@ -20,15 +20,16 @@ internal sealed class ViewState
     [JsonPropertyName("focusTimeTicks")]
     public long? FocusTimeTicks { get; set; }
 
-    public static void Write(string view, DateTime date)
+    // Write a viewstate.json to the given path (which lives under a per-test
+    // isolated data dir). Creates the cache directory if needed.
+    public static void Write(string path, string view, DateTime date)
     {
-        Directory.CreateDirectory(MeridianPaths.AppDataDir);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var state = new ViewState
         {
             View = view,
             Date = new DateTimeOffset(date.Date, TimeZoneInfo.Local.GetUtcOffset(date)),
         };
-        File.WriteAllText(MeridianPaths.ViewStateJson,
-            JsonSerializer.Serialize(state));
+        File.WriteAllText(path, JsonSerializer.Serialize(state));
     }
 }
