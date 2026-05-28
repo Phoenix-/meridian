@@ -390,8 +390,10 @@ public sealed partial class MainWindow : Window
         {
             await _accountManager.LoadSavedAccountsAsync();
 
-            if (_accountManager.Accounts.Count == 0)
-                await _accountManager.AddAccountAsync(GoogleOAuthClient.ProviderName);
+            // Don't push the user into Google OAuth before they even see the window.
+            // Empty calendar at first launch is fine — the "Аккаунты" button is right
+            // there in the top bar; UI tests rely on this not happening too.
+            // (A friendlier first-run hint is a separate UX task.)
 
             var saved = DiskCache.ReadViewState();
             if (saved != null)
