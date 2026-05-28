@@ -6,9 +6,7 @@ namespace Meridian.Services;
 
 public sealed class JsonCalendarListStore : ICalendarListStore
 {
-    private static string CacheDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                     "Meridian", "cache");
+    private static string CacheDir => AppPaths.Cache;
 
     private static string FilePath(AccountId account) =>
         Path.Combine(CacheDir, $"calendars-{account.ToDirectoryName()}.json");

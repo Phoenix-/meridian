@@ -81,9 +81,7 @@ public sealed partial class MainWindow : Window
         // Create `%APPDATA%\Meridian\diag.enabled` (empty file) to reveal
         // them — useful for validating the toast pipeline on a new machine
         // without juggling a real calendar event.
-        if (File.Exists(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Meridian", "diag.enabled")))
+        if (File.Exists(Path.Combine(AppPaths.Root, "diag.enabled")))
         {
             BtnTestToast.Visibility = Visibility.Visible;
             BtnTestScheduled.Visibility = Visibility.Visible;

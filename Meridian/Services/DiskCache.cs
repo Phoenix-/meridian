@@ -7,9 +7,7 @@ namespace Meridian.Services;
 // JsonTaskStore — this class only handles UI preferences.
 internal static class DiskCache
 {
-    private static string CacheDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                     "Meridian", "cache");
+    private static string CacheDir => AppPaths.Cache;
 
     private static string ViewStatePath =>
         Path.Combine(CacheDir, "viewstate.json");

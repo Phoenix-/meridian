@@ -7,9 +7,7 @@ public sealed class JsonTaskStore : ITaskStore
 {
     private static readonly TimeSpan MaxAge = TimeSpan.FromHours(24);
 
-    private static string CacheDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                     "Meridian", "cache");
+    private static string CacheDir => AppPaths.Cache;
 
     private static string FilePath =>
         Path.Combine(CacheDir, "tasks.json");

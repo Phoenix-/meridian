@@ -35,9 +35,7 @@ internal sealed class MissedRemindersTracker
     // cases (clock skew, last-minute timezone shifts).
     private static readonly TimeSpan ScheduledRetention = TimeSpan.FromDays(8);
 
-    private static string StorePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Meridian", "missed-reminders.json");
+    private static string StorePath => Path.Combine(AppPaths.Root, "missed-reminders.json");
 
     private Dictionary<string, DateTime> _shownAt;
     private Dictionary<string, DateTime> _scheduledFireAt;

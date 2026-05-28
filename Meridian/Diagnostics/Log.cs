@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using Meridian.Services;
 
 namespace Meridian.Diagnostics;
 
@@ -33,9 +34,7 @@ public static class Log
         get
         {
             if (_filePath != null) return _filePath;
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Meridian", "logs");
+            var dir = AppPaths.Logs;
             try { Directory.CreateDirectory(dir); } catch { /* swallowed below */ }
             _filePath = Path.Combine(dir, "meridian.log");
             return _filePath;

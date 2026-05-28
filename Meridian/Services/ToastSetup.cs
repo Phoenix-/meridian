@@ -244,9 +244,7 @@ internal static partial class ToastSetup
         return true;
     }
 
-    private static string VersionStampPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Meridian", "toast-setup.version");
+    private static string VersionStampPath => Path.Combine(AppPaths.Root, "toast-setup.version");
 
     private static bool HasCurrentVersionStamp()
     {

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Meridian.Services;
 
 namespace Meridian.Auth;
 
@@ -20,9 +21,7 @@ internal partial class TokenJsonContext : JsonSerializerContext { }
 //   %AppData%\Meridian\tokens\<provider>_<safe-email>\token.json
 public static class TokenStore
 {
-    private static readonly string Root = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "Meridian", "tokens");
+    private static string Root => AppPaths.Tokens;
 
     // Returns all AccountIds found on disk for the given provider name.
     public static IEnumerable<AccountId> GetSavedAccounts(string providerName)

@@ -6,9 +6,7 @@ namespace Meridian.Services;
 
 public sealed class JsonEventStore : IEventStore
 {
-    private static string CacheDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                     "Meridian", "cache");
+    private static string CacheDir => AppPaths.Cache;
 
     private static string FilePath(AccountId account, string calendarId, int year) =>
         Path.Combine(CacheDir, $"cal-{account.ToDirectoryName()}-{Sanitize(calendarId)}-{year}.json");
