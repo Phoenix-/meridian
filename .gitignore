@@ -22,6 +22,9 @@ Meridian/Auth/Secrets.g.cs
 *.nupkg
 packages/
 
+# UI test artifacts
+Meridian.UiTests/TestResults/
+
 # OS
 Thumbs.db
 Desktop.ini

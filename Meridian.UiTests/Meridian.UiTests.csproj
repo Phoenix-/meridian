@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Meridian.UiTests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- FlaUI on netstandard2.0; .NET 10 consumes it fine. Latest stable line. -->
+    <PackageReference Include="FlaUI.Core" Version="5.0.0" />
+    <PackageReference Include="FlaUI.UIA3" Version="5.0.0" />
+    <!-- xUnit + VS runner + test SDK. Versions pinned to known-good pairs. -->
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Intentionally NO ProjectReference to ..\Meridian\Meridian.csproj:
+       that would drag in the SchemaGen source generator and the
+       generate-secrets.ps1 build step (requires client_secret.json).
+       The test only talks to the app via UI Automation; it consumes the
+       built exe as a file path. ViewStateData is duplicated locally
+       (it's three fields) — see Fixtures/ViewState.cs. -->
+</Project>
