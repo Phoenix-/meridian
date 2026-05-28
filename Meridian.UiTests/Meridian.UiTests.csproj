@@ -25,6 +25,9 @@
 
   <ItemGroup>
     <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- JSON fixtures consumed by FakeCalendarProvider (in the SUT). The fixture
+         provides the path via MERIDIAN_FAKE_FIXTURE env at process launch. -->
+    <Content Include="Fixtures\Data\**\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Intentionally NO ProjectReference to ..\Meridian\Meridian.csproj:

@@ -1,0 +1,16 @@
+{
+  "events": [
+    {
+      "id": "fake-armenia",
+      "title": "Армения",
+      "start": "2026-06-14T00:00:00",
+      "end": "2026-06-20T00:00:00",
+      "isAllDay": true,
+      "calendarId": "fake-cal",
+      "calendarColor": "#9fe1e7",
+      "calendarTextColor": "#000000",
+      "accountEmail": "fake@test.local",
+      "calendarTitle": "Fake Calendar"
+    }
+  ]
+}

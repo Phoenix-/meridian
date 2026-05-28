@@ -31,6 +31,11 @@ public sealed class MeridianAppFixture : IAsyncLifetime
     public string SeedView { get; init; } = "Day";
     public DateTime SeedDate { get; init; } = DateTime.Today;
 
+    // Name of the JSON fixture under TestResults's Fixtures/Data/ (without
+    // extension). When set, FakeCalendarProvider reads it via the
+    // MERIDIAN_FAKE_FIXTURE env var. Null → empty calendar.
+    public string? Fixture { get; init; }
+
     public Window Window => _window ?? throw new InvalidOperationException(
         "App not initialized. Did InitializeAsync run?");
 
@@ -54,6 +59,20 @@ public sealed class MeridianAppFixture : IAsyncLifetime
 
         var psi = new ProcessStartInfo(MeridianPaths.DebugExe) { UseShellExecute = false };
         psi.Environment["MERIDIAN_DATA_DIR"] = _dataDir;
+
+        if (Fixture is { } fixtureName)
+        {
+            var fixturePath = Path.Combine(AppContext.BaseDirectory,
+                "Fixtures", "Data", fixtureName + ".json");
+            if (!File.Exists(fixturePath))
+                throw new FileNotFoundException(
+                    $"Fixture '{fixtureName}' not found at {fixturePath}. " +
+                    "Add it to Meridian.UiTests/Fixtures/Data/ — the csproj copies *.json " +
+                    "into the test bin/ automatically.",
+                    fixturePath);
+            psi.Environment["MERIDIAN_FAKE_FIXTURE"] = fixturePath;
+        }
+
         _process = Process.Start(psi) ?? throw new InvalidOperationException(
             $"Failed to start {MeridianPaths.DebugExe}");
 

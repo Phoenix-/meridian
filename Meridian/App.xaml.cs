@@ -1,5 +1,6 @@
 using Meridian.Auth;
 using Meridian.Services;
+using Meridian.Testing;
 using Microsoft.UI.Xaml;
 
 namespace Meridian;
@@ -24,7 +25,12 @@ public partial class App : Application
             ToastSetup.EnsureRegistered();
 
         var providers = new ProviderRegistry();
-        providers.Register(new GoogleCalendarProvider());
+        // Under MERIDIAN_DATA_DIR (UI tests) swap Google for an in-process fake:
+        // deterministic data via MERIDIAN_FAKE_FIXTURE, no OAuth, no network.
+        if (AppPaths.IsIsolated)
+            providers.Register(new FakeCalendarProvider());
+        else
+            providers.Register(new GoogleCalendarProvider());
 
         MainWindow = new MainWindow(providers);
         MainWindow.Activate();
