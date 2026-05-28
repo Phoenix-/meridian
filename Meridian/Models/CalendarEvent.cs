@@ -6,6 +6,10 @@ public class CalendarEvent
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public string? Description { get; set; }
+    // Free-form location string from Google. Can be an address, a room name,
+    // or just an URL. Rendered as text or a hyperlink in the details flyout
+    // based on whether it parses as an absolute URL.
+    public string? Location { get; set; }
     public DateTime Start { get; set; }
     public DateTime End { get; set; }
     public bool IsAllDay { get; set; }
@@ -32,4 +36,29 @@ public class CalendarEvent
     // reminder. Email-method reminders are intentionally ignored — Google itself
     // delivers those.
     public List<int>? ReminderMinutes { get; set; }
+    // Join URL for a Google Meet video conference attached to this event. We
+    // pick the entryPoint with entryPointType == "video"; phone/sip entries
+    // are dropped. Null when the event has no conferenceData or no video entry.
+    public string? MeetJoinUrl { get; set; }
+    // People invited to the event. Resource attendees (rooms/equipment) are
+    // split out into Rooms. Empty/null = no guests.
+    public List<EventAttendee>? Attendees { get; set; }
+    // Resource attendees (meeting rooms, equipment). Kept separate so the UI
+    // can render them as their own section.
+    public List<EventAttendee>? Rooms { get; set; }
+}
+
+[CacheSchema]
+public class EventAttendee
+{
+    public string Email { get; set; } = "";
+    public string? DisplayName { get; set; }
+    // One of: "accepted", "declined", "tentative", "needsAction". Other values
+    // (or null) render as needsAction.
+    public string? ResponseStatus { get; set; }
+    public bool IsOrganizer { get; set; }
+    // True when this attendee entry represents the signed-in user's own
+    // calendar copy. Used to bubble "You" to the top of the list.
+    public bool IsSelf { get; set; }
+    public bool IsOptional { get; set; }
 }

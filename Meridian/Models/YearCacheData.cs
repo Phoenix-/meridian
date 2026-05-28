@@ -19,7 +19,8 @@ public sealed class YearCacheData
     // The on-disk shape is the event shape plus this wrapper's own fields, so the
     // guard combines both hashes. Stored explicitly so a shape change invalidates
     // existing caches on startup.
-    public static string CurrentSchemaHash => SchemaHashes.CalendarEvent + SchemaHashes.YearCacheData;
+    public static string CurrentSchemaHash =>
+        SchemaHashes.CalendarEvent + SchemaHashes.EventAttendee + SchemaHashes.YearCacheData;
 
     public string? SchemaHash { get; set; }
 

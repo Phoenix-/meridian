@@ -2,7 +2,7 @@
     x:Class="Meridian.Views.EventDetailsFlyout"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    MaxWidth="360">
+    MaxWidth="420">
     <Grid ColumnSpacing="10" Padding="2">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="4"/>
@@ -52,6 +52,23 @@
                            TextWrapping="Wrap"
                            IsTextSelectionEnabled="True"/>
             </ScrollViewer>
+
+            <StackPanel x:Name="MeetStack"
+                        Spacing="0"
+                        Visibility="Collapsed"/>
+
+            <StackPanel x:Name="LocationStack"
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        Visibility="Collapsed"/>
+
+            <StackPanel x:Name="GuestsStack"
+                        Spacing="4"
+                        Visibility="Collapsed"/>
+
+            <StackPanel x:Name="RoomsStack"
+                        Spacing="4"
+                        Visibility="Collapsed"/>
 
             <StackPanel x:Name="RemindersStack"
                         Spacing="2"

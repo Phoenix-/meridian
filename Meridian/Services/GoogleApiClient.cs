@@ -16,16 +16,42 @@ internal class EventList
 
 internal class EventDto
 {
-    [JsonPropertyName("id")]          public string? Id { get; set; }
-    [JsonPropertyName("status")]      public string? Status { get; set; }
-    [JsonPropertyName("summary")]     public string? Summary { get; set; }
-    [JsonPropertyName("description")] public string? Description { get; set; }
-    [JsonPropertyName("colorId")]     public string? ColorId { get; set; }
-    [JsonPropertyName("start")]       public EventTime? Start { get; set; }
-    [JsonPropertyName("end")]         public EventTime? End { get; set; }
-    [JsonPropertyName("reminders")]   public ReminderInfo? Reminders { get; set; }
-    [JsonPropertyName("recurrence")]  public List<string>? Recurrence { get; set; }
-    [JsonPropertyName("htmlLink")]    public string? HtmlLink { get; set; }
+    [JsonPropertyName("id")]             public string? Id { get; set; }
+    [JsonPropertyName("status")]         public string? Status { get; set; }
+    [JsonPropertyName("summary")]        public string? Summary { get; set; }
+    [JsonPropertyName("description")]    public string? Description { get; set; }
+    [JsonPropertyName("location")]       public string? Location { get; set; }
+    [JsonPropertyName("colorId")]        public string? ColorId { get; set; }
+    [JsonPropertyName("start")]          public EventTime? Start { get; set; }
+    [JsonPropertyName("end")]            public EventTime? End { get; set; }
+    [JsonPropertyName("reminders")]      public ReminderInfo? Reminders { get; set; }
+    [JsonPropertyName("recurrence")]     public List<string>? Recurrence { get; set; }
+    [JsonPropertyName("htmlLink")]       public string? HtmlLink { get; set; }
+    [JsonPropertyName("conferenceData")] public ConferenceDataDto? ConferenceData { get; set; }
+    [JsonPropertyName("attendees")]      public List<AttendeeDto>? Attendees { get; set; }
+}
+
+internal class ConferenceDataDto
+{
+    [JsonPropertyName("entryPoints")] public List<ConferenceEntryPointDto>? EntryPoints { get; set; }
+}
+
+internal class ConferenceEntryPointDto
+{
+    [JsonPropertyName("entryPointType")] public string? EntryPointType { get; set; }
+    [JsonPropertyName("uri")]            public string? Uri { get; set; }
+    [JsonPropertyName("label")]          public string? Label { get; set; }
+}
+
+internal class AttendeeDto
+{
+    [JsonPropertyName("email")]          public string? Email { get; set; }
+    [JsonPropertyName("displayName")]    public string? DisplayName { get; set; }
+    [JsonPropertyName("responseStatus")] public string? ResponseStatus { get; set; }
+    [JsonPropertyName("organizer")]      public bool? Organizer { get; set; }
+    [JsonPropertyName("self")]           public bool? Self { get; set; }
+    [JsonPropertyName("optional")]       public bool? Optional { get; set; }
+    [JsonPropertyName("resource")]       public bool? Resource { get; set; }
 }
 
 internal class ReminderInfo
@@ -200,11 +226,13 @@ public sealed class GoogleApiClient(AccountId id)
                 var end   = item.End?.DateTime?.LocalDateTime
                             ?? (item.End?.Date is { } ed ? DateTime.Parse(ed) : DateTime.Today);
 
+                var (guests, rooms) = SplitAttendees(item.Attendees);
                 upserts.Add(new CalendarEvent
                 {
                     Id          = item.Id,
                     Title       = item.Summary ?? "(без названия)",
                     Description = item.Description,
+                    Location    = item.Location,
                     Start       = start,
                     End         = end,
                     IsAllDay    = item.Start?.DateTime is null,
@@ -213,6 +241,9 @@ public sealed class GoogleApiClient(AccountId id)
                     AccountEmail = id.Email,
                     HtmlLink    = item.HtmlLink,
                     ReminderMinutes = ResolveReminderMinutes(item.Reminders, defaultPopupMinutes),
+                    MeetJoinUrl = ExtractMeetJoinUrl(item.ConferenceData),
+                    Attendees   = guests,
+                    Rooms       = rooms,
                 });
             }
 
@@ -359,6 +390,45 @@ public sealed class GoogleApiClient(AccountId id)
             (result ??= []).Add(m);
         }
         return result;
+    }
+
+    // Pulls the Google Meet join URL from conferenceData.entryPoints. Picks the
+    // entry with entryPointType == "video" (Meet's join link); phone/sip
+    // entries are dropped — we only surface a single "Join" action in the UI.
+    private static string? ExtractMeetJoinUrl(ConferenceDataDto? data)
+    {
+        if (data?.EntryPoints is not { Count: > 0 } eps) return null;
+        foreach (var ep in eps)
+            if (ep.EntryPointType == "video" && !string.IsNullOrWhiteSpace(ep.Uri))
+                return ep.Uri;
+        return null;
+    }
+
+    // Splits Google's attendees[] into people vs rooms/equipment. Cancelled
+    // attendees (responseStatus == "declined" by design we keep — declined
+    // guests still appear in the Google UI). Resources never appear in the
+    // guests list. Returns (null, null) for the common no-attendees case.
+    private static (List<EventAttendee>? Guests, List<EventAttendee>? Rooms) SplitAttendees(List<AttendeeDto>? src)
+    {
+        if (src is null || src.Count == 0) return (null, null);
+        List<EventAttendee>? guests = null;
+        List<EventAttendee>? rooms = null;
+        foreach (var a in src)
+        {
+            if (string.IsNullOrEmpty(a.Email)) continue;
+            var entry = new EventAttendee
+            {
+                Email = a.Email,
+                DisplayName = a.DisplayName,
+                ResponseStatus = a.ResponseStatus,
+                IsOrganizer = a.Organizer ?? false,
+                IsSelf = a.Self ?? false,
+                IsOptional = a.Optional ?? false,
+            };
+            if (a.Resource == true) (rooms ??= []).Add(entry);
+            else (guests ??= []).Add(entry);
+        }
+        return (guests, rooms);
     }
 
     private async Task<T?> SendGetAsync<T>(

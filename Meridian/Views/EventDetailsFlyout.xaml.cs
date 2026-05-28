@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Shapes;
 using Windows.System;
 using Windows.UI;
 
@@ -71,6 +72,30 @@ public sealed partial class EventDetailsFlyout : UserControl
             DescriptionScroll.Visibility = Visibility.Visible;
         }
 
+        if (!string.IsNullOrEmpty(ev.MeetJoinUrl))
+        {
+            MeetStack.Visibility = Visibility.Visible;
+            MeetStack.Children.Add(BuildMeetBlock(ev.MeetJoinUrl));
+        }
+
+        if (!string.IsNullOrWhiteSpace(ev.Location))
+        {
+            LocationStack.Visibility = Visibility.Visible;
+            BuildLocationBlock(LocationStack, ev.Location);
+        }
+
+        if (ev.Attendees is { Count: > 0 })
+        {
+            GuestsStack.Visibility = Visibility.Visible;
+            BuildGuestsBlock(GuestsStack, ev.Attendees);
+        }
+
+        if (ev.Rooms is { Count: > 0 })
+        {
+            RoomsStack.Visibility = Visibility.Visible;
+            BuildRoomsBlock(RoomsStack, ev.Rooms);
+        }
+
         if (ev.ReminderMinutes is { Count: > 0 })
         {
             RemindersStack.Visibility = Visibility.Visible;
@@ -114,6 +139,331 @@ public sealed partial class EventDetailsFlyout : UserControl
             return $"{ev.Start:dddd, d MMMM}, {ev.Start:HH:mm}–{ev.End:HH:mm}";
 
         return $"{ev.Start:d MMM HH:mm} – {ev.End:d MMM HH:mm}";
+    }
+
+    // ── Meet / Guests / Rooms blocks ───────────────────────────────────────────
+
+    // Threshold above which the guest list is replaced by a "too many to show"
+    // note (mirrors Google Calendar Web behaviour on large meetings).
+    private const int GuestListMaxShown = 5;
+
+    private FrameworkElement BuildMeetBlock(string joinUrl)
+    {
+        var sp = new StackPanel { Spacing = 2 };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        row.Children.Add(new TextBlock
+        {
+            Text = "", // Video camera glyph
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 16,
+            VerticalAlignment = VerticalAlignment.Center,
+            Opacity = 0.85,
+        });
+        var link = new HyperlinkButton
+        {
+            Content = "Присоединиться к Google Meet",
+            Padding = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        if (Uri.TryCreate(joinUrl, UriKind.Absolute, out var uri))
+            link.NavigateUri = uri;
+        row.Children.Add(link);
+        sp.Children.Add(row);
+
+        var host = TryGetHostAndPath(joinUrl);
+        if (!string.IsNullOrEmpty(host))
+        {
+            sp.Children.Add(new TextBlock
+            {
+                Text = host,
+                FontSize = 11,
+                Margin = new Thickness(24, 0, 0, 0),
+                Foreground = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"],
+                IsTextSelectionEnabled = true,
+            });
+        }
+        return sp;
+    }
+
+    private void BuildLocationBlock(StackPanel parent, string location)
+    {
+        parent.Children.Add(new TextBlock
+        {
+            Text = "", // MapPin glyph
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 14,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 2, 0, 0),
+            Opacity = 0.85,
+        });
+
+        if (Uri.TryCreate(location, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps))
+        {
+            parent.Children.Add(new HyperlinkButton
+            {
+                Content = new TextBlock { Text = location, TextWrapping = TextWrapping.Wrap, FontSize = 13 },
+                NavigateUri = uri,
+                Padding = new Thickness(0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+        else
+        {
+            parent.Children.Add(new TextBlock
+            {
+                Text = location,
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+        }
+    }
+
+    private static string? TryGetHostAndPath(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        var path = uri.AbsolutePath.TrimEnd('/');
+        return string.IsNullOrEmpty(path) ? uri.Host : $"{uri.Host}{path}";
+    }
+
+    private void BuildGuestsBlock(StackPanel parent, List<EventAttendee> guests)
+    {
+        var ordered = guests
+            .OrderByDescending(a => a.IsSelf)
+            .ThenByDescending(a => a.IsOrganizer)
+            .ThenBy(a => a.DisplayName ?? a.Email, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        parent.Children.Add(BuildGuestsHeader(ordered));
+
+        if (ordered.Count > GuestListMaxShown)
+        {
+            parent.Children.Add(new TextBlock
+            {
+                Text = "Слишком много участников, чтобы показать список",
+                FontSize = 12,
+                Margin = new Thickness(0, 2, 0, 0),
+                Foreground = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"],
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return;
+        }
+
+        foreach (var a in ordered)
+            parent.Children.Add(BuildAttendeeRow(a));
+    }
+
+    private static FrameworkElement BuildGuestsHeader(IReadOnlyList<EventAttendee> guests)
+    {
+        int accepted = 0, declined = 0, tentative = 0, needs = 0;
+        foreach (var g in guests)
+        {
+            switch (g.ResponseStatus)
+            {
+                case "accepted":  accepted++; break;
+                case "declined":  declined++; break;
+                case "tentative": tentative++; break;
+                default:          needs++;    break;
+            }
+        }
+
+        var summary = new List<string>();
+        if (accepted  > 0) summary.Add($"{accepted} — да");
+        if (declined  > 0) summary.Add($"{declined} — нет");
+        if (tentative > 0) summary.Add($"{tentative} — возможно");
+        if (needs     > 0) summary.Add($"{needs} — не ответил(а)");
+
+        var text = $"Гости ({guests.Count})";
+        if (summary.Count > 0) text += " · " + string.Join(", ", summary);
+
+        return new TextBlock
+        {
+            Text = text,
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"],
+            TextWrapping = TextWrapping.Wrap,
+        };
+    }
+
+    private FrameworkElement BuildAttendeeRow(EventAttendee a)
+    {
+        var grid = new Grid { ColumnSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var avatar = BuildAvatar(a);
+        Grid.SetColumn(avatar, 0);
+        grid.Children.Add(avatar);
+
+        var middle = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        var name = new TextBlock
+        {
+            Text = FormatAttendeeName(a),
+            FontSize = 13,
+            FontWeight = a.IsSelf ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            IsTextSelectionEnabled = true,
+        };
+        middle.Children.Add(name);
+
+        var subParts = new List<string>();
+        if (a.IsOrganizer) subParts.Add("организатор");
+        if (a.IsOptional) subParts.Add("необязательно");
+        if (subParts.Count > 0)
+        {
+            middle.Children.Add(new TextBlock
+            {
+                Text = string.Join(" · ", subParts),
+                FontSize = 11,
+                Foreground = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"],
+            });
+        }
+        Grid.SetColumn(middle, 1);
+        grid.Children.Add(middle);
+
+        if (BuildStatusGlyph(a.ResponseStatus) is { } status)
+        {
+            Grid.SetColumn(status, 2);
+            grid.Children.Add(status);
+        }
+
+        return grid;
+    }
+
+    private static string FormatAttendeeName(EventAttendee a)
+    {
+        var label = !string.IsNullOrWhiteSpace(a.DisplayName)
+            ? a.DisplayName!
+            : DeriveNameFromEmail(a.Email);
+        return a.IsSelf ? $"{label} (вы)" : label;
+    }
+
+    private static string DeriveNameFromEmail(string email)
+    {
+        var at = email.IndexOf('@');
+        return at > 0 ? email[..at] : email;
+    }
+
+    // Renders the colored circle with the attendee's initial. Color is a
+    // deterministic hash of the email so the same person looks the same
+    // across re-renders and across events.
+    private static FrameworkElement BuildAvatar(EventAttendee a)
+    {
+        var color = ColorFromEmail(a.Email);
+        var initial = GetInitial(a.DisplayName, a.Email);
+        var grid = new Grid
+        {
+            Width = 28,
+            Height = 28,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        grid.Children.Add(new Ellipse
+        {
+            Width = 28,
+            Height = 28,
+            Fill = new SolidColorBrush(color),
+        });
+        grid.Children.Add(new TextBlock
+        {
+            Text = initial,
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = new SolidColorBrush(Colors.White),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+        return grid;
+    }
+
+    private static string GetInitial(string? displayName, string email)
+    {
+        var source = !string.IsNullOrWhiteSpace(displayName) ? displayName! : email;
+        foreach (var ch in source)
+            if (char.IsLetterOrDigit(ch))
+                return char.ToUpperInvariant(ch).ToString();
+        return "?";
+    }
+
+    // Palette borrowed loosely from Material's avatar colors — readable on
+    // white text and visually distinct from each other.
+    private static readonly Color[] AvatarPalette =
+    [
+        Color.FromArgb(255, 0xEF, 0x53, 0x50),  // red
+        Color.FromArgb(255, 0xEC, 0x40, 0x7A),  // pink
+        Color.FromArgb(255, 0xAB, 0x47, 0xBC),  // purple
+        Color.FromArgb(255, 0x7E, 0x57, 0xC2),  // deep purple
+        Color.FromArgb(255, 0x5C, 0x6B, 0xC0),  // indigo
+        Color.FromArgb(255, 0x42, 0xA5, 0xF5),  // blue
+        Color.FromArgb(255, 0x26, 0xA6, 0x9A),  // teal
+        Color.FromArgb(255, 0x66, 0xBB, 0x6A),  // green
+        Color.FromArgb(255, 0xFF, 0x70, 0x43),  // deep orange
+        Color.FromArgb(255, 0x8D, 0x6E, 0x63),  // brown
+    ];
+
+    private static Color ColorFromEmail(string email)
+    {
+        var key = email.Trim().ToLowerInvariant();
+        int hash = 0;
+        foreach (var ch in key) hash = unchecked(hash * 31 + ch);
+        var idx = (hash & 0x7FFFFFFF) % AvatarPalette.Length;
+        return AvatarPalette[idx];
+    }
+
+    private static FrameworkElement? BuildStatusGlyph(string? status)
+    {
+        var (glyph, color) = status switch
+        {
+            "accepted"  => ("", Color.FromArgb(255, 0x2E, 0x7D, 0x32)),  // check, green
+            "declined"  => ("", Color.FromArgb(255, 0xC6, 0x28, 0x28)),  // cross, red
+            "tentative" => ("", Color.FromArgb(255, 0xEF, 0x6C, 0x00)),  // question mark, orange
+            _           => (null, default(Color)),
+        };
+        if (glyph is null) return null;
+        return new TextBlock
+        {
+            Text = glyph,
+            FontFamily = new FontFamily("Segoe Fluent Icons"),
+            FontSize = 14,
+            Foreground = new SolidColorBrush(color),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+    }
+
+    private void BuildRoomsBlock(StackPanel parent, List<EventAttendee> rooms)
+    {
+        parent.Children.Add(new TextBlock
+        {
+            Text = rooms.Count == 1 ? "Место" : $"Места ({rooms.Count})",
+            FontSize = 12,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"],
+        });
+        foreach (var r in rooms)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            row.Children.Add(new TextBlock
+            {
+                Text = "", // MapPin glyph
+                FontFamily = new FontFamily("Segoe Fluent Icons"),
+                FontSize = 14,
+                VerticalAlignment = VerticalAlignment.Center,
+                Opacity = 0.8,
+            });
+            row.Children.Add(new TextBlock
+            {
+                Text = !string.IsNullOrWhiteSpace(r.DisplayName) ? r.DisplayName! : r.Email,
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                IsTextSelectionEnabled = true,
+            });
+            parent.Children.Add(row);
+        }
     }
 
     private static FrameworkElement BuildReminderRow(int minutes)
