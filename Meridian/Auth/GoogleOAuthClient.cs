@@ -35,8 +35,12 @@ public static class GoogleOAuthClient
 
     private static readonly string[] Scopes =
     [
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/tasks.readonly",
+        // Full read-write, requested up front (ahead of read-write UI) so that
+        // when create/edit features land we don't force every user to re-consent.
+        // Safe while unverified; both are `sensitive`, not `restricted` (no CASA).
+        // See gh issue #8 for the verification plan.
+        "https://www.googleapis.com/auth/calendar",
+        "https://www.googleapis.com/auth/tasks",
         "email", "profile",
     ];
 
