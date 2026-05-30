@@ -30,7 +30,12 @@
                                 <stop offset="100%" stop-color="#059669"></stop>
                             </linearGradient>
                         </defs>
-                        
+
+                        <!-- Содержимое масштабировано к ~1.22 от центра холста (128,128),
+                             чтобы глиф занимал почти весь кадр — иначе в меню Пуск
+                             (и на MSIX-плитке) иконка выглядела мелкой с большими полями.
+                             translate = 128 - 128*1.22 = -28.16. Геометрия фигур не менялась. -->
+                        <g transform="translate(-28.16,-28.16) scale(1.22)">
                         <!-- Подложка календаря -->
                         <rect x="28" y="28" width="200" height="200" rx="36" fill="url(#bg-grad1)" filter="url(#shadow-base)"></rect>
                         
@@ -52,4 +57,5 @@
                         <!-- Парящая галочка (Задачи) -->
                         <circle cx="180" cy="180" r="32" fill="url(#check-bg1)" filter="url(#shadow-float)"></circle>
                         <path d="M164 180 L174 190 L196 168" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"></path>
+                        </g>
                     </svg>

@@ -169,6 +169,18 @@ Remove-Item (Join-Path $stageDir 'Meridian.build.appxrecipe') -Force -ErrorActio
 Copy-Item $aotExe (Join-Path $stageDir 'Meridian.exe') -Force
 Write-Host ("    overlaid AOT Meridian.exe ({0:N1} MB)" -f ((Get-Item $aotExe).Length/1MB))
 
+# Ensure the MSIX visual assets are in the package. The SDK build does NOT copy
+# Meridian/Assets/msix/*.png into its payload (they're not declared as Content),
+# so stage\Assets ends up without the logos the manifest references -> the Start
+# Menu entry shows a blank/placeholder icon. Copy them in explicitly.
+$stageAssets = Join-Path $stageDir 'Assets'
+New-Item -ItemType Directory -Force $stageAssets | Out-Null
+if (-not (Test-Path (Join-Path $assetsSrc 'Square44x44Logo.png'))) {
+    throw "MSIX assets missing in $assetsSrc. Run Meridian\Assets\generate-msix-assets.ps1 first."
+}
+Copy-Item (Join-Path $assetsSrc '*.png') $stageAssets -Force
+Write-Host "    copied MSIX logo assets into Assets\"
+
 $stagedManifest = Join-Path $stageDir 'AppxManifest.xml'
 if ($Version) {
     # Match ONLY the Identity element's Version attribute:
