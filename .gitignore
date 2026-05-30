@@ -25,6 +25,10 @@ packages/
 # UI test artifacts
 Meridian.UiTests/TestResults/
 
+# MSIX packaging build artifacts (staged payload, .msix, dev cert, unpack).
+# The generated PNG assets under Meridian/Assets/msix/ ARE committed.
+packaging/out/
+
 # OS
 Thumbs.db
 Desktop.ini

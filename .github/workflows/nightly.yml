@@ -38,7 +38,7 @@ jobs:
         run: |
           dotnet publish Meridian/Meridian.csproj -p:PublishProfile=win-x64-release
 
-      - name: Package
+      - name: Package (portable zip)
         shell: pwsh
         run: |
           $version = "nightly-$(Get-Date -Format 'yyyyMMdd')"
@@ -46,8 +46,28 @@ jobs:
             -Path "Meridian/bin/publish/win-x64/*" `
             -DestinationPath "Meridian-$version.zip"
           echo "ZIP_NAME=Meridian-$version.zip" >> $env:GITHUB_ENV
+          echo "PKG_VERSION=$version" >> $env:GITHUB_ENV
           echo "RELEASE_TAG=nightly" >> $env:GITHUB_ENV
           echo "RELEASE_NAME=Nightly $((Get-Date -Format 'yyyy-MM-dd'))" >> $env:GITHUB_ENV
+
+      - name: Package (MSIX installer)
+        shell: pwsh
+        run: |
+          # build-msix.ps1 reuses the AOT publish above (-SkipPublish), then
+          # SDK-builds a throwaway packaged copy of the project to obtain the
+          # correct package resources.pri + payload (the AOT publish can't make a
+          # usable package PRI — see notes/packaged-msix-aot-needs-sdk-resources-pri.md),
+          # overlays the AOT exe, packs, and dev-signs so the nightly .msix is
+          # sideloadable. The throwaway build re-runs generate-secrets.ps1, so it
+          # needs client_secret.json at repo root (created in the build job above).
+          # DEV-SIGNED, NOT FOR PRODUCTION — TODO(#7): replace dev cert with real cert.
+          # MSIX Version must be x.y.z.0 (numeric) — derive from the date.
+          $msixVer = "$(Get-Date -Format 'yyyy.M.d').0"
+          ./packaging/build-msix.ps1 -SkipPublish -DevSign -Version $msixVer
+          $src = "packaging/out/Meridian.msix"
+          $dst = "Meridian-$env:PKG_VERSION.msix"
+          Copy-Item $src $dst -Force
+          echo "MSIX_NAME=$dst" >> $env:GITHUB_ENV
 
       - name: Delete previous nightly release and tag
         shell: pwsh
@@ -64,32 +84,8 @@ jobs:
           tag_name: ${{ env.RELEASE_TAG }}
           name: ${{ env.RELEASE_NAME }}
           prerelease: true
-          files: ${{ env.ZIP_NAME }}
+          files: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.MSIX_NAME }}
           target_commitish: ${{ github.sha }}
           make_latest: "false"
-
-  # installer:
-  #   name: Build installer (WiX / MSIX)
-  #   needs: build
-  #   runs-on: windows-latest
-  #   permissions:
-  #     contents: write
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #     - name: Download build artifacts
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         name: publish-win-x64
-  #         path: publish/
-  #     - name: Build installer
-  #       shell: pwsh
-  #       run: |
-  #         # wix build installer.wxs -o Meridian-setup.msi
-  #         # or: dotnet publish -p:GenerateAppxPackage=true
-  #         throw "Not implemented yet"
-  #     - name: Upload installer to release
-  #       uses: softprops/action-gh-release@v2
-  #       with:
-  #         tag_name: nightly
-  #         files: Meridian-setup.msi
