@@ -74,8 +74,14 @@ jobs:
           # MSIX Version must be x.y.z.0 (numeric) — derive from the date.
           $msixVer = "$(Get-Date -Format 'yyyy.M.d').0"
           $pfx = Join-Path $env:RUNNER_TEMP 'meridian-dev.pfx'
-          [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:DEV_PFX_BASE64))
-          ./packaging/build-msix.ps1 -SkipPublish -PfxPath $pfx -PfxPassword $env:DEV_PFX_PASSWORD -Version $msixVer
+          # Strip any whitespace/newlines the secret may carry (gh secret set /
+          # storage can append a trailing newline) — FromBase64String rejects it.
+          $b64 = ($env:DEV_PFX_BASE64 -replace '\s', '')
+          [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($b64))
+          # Trim a possible trailing newline on the password secret too, else
+          # signtool would reject the .pfx with a wrong-password error.
+          $pfxPw = $env:DEV_PFX_PASSWORD.Trim()
+          ./packaging/build-msix.ps1 -SkipPublish -PfxPath $pfx -PfxPassword $pfxPw -Version $msixVer
           Remove-Item $pfx -Force
           $src = "packaging/out/Meridian.msix"
           $dst = "Meridian-$env:PKG_VERSION.msix"
