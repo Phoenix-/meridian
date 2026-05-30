@@ -155,7 +155,16 @@ Write-Host ("    overlaid AOT Meridian.exe ({0:N1} MB)" -f ((Get-Item $aotExe).L
 
 $stagedManifest = Join-Path $stageDir 'AppxManifest.xml'
 if ($Version) {
-    (Get-Content $stagedManifest -Raw) -replace 'Version="[\d\.]+"', "Version=`"$Version`"" | Set-Content $stagedManifest -Encoding UTF8
+    # Match ONLY the Identity element's Version attribute:
+    #  - -creplace (case-SENSITIVE): the XML declaration uses lowercase
+    #    `version="1.0"`; matching it case-insensitively rewrites the <?xml ...?>
+    #    line and makeappx rejects it ("Incorrect xml declaration syntax").
+    #  - leading space discriminates capital-V `Version` from
+    #    MinVersion/MaxVersionTested (no space before "Version").
+    $xml = (Get-Content $stagedManifest -Raw) -creplace ' Version="[\d\.]+"', " Version=`"$Version`""
+    # Write BOM-less UTF-8: Set-Content -Encoding UTF8 emits a BOM in some PS hosts,
+    # which makeappx rejects ("Incorrect xml declaration syntax" at the <?xml line).
+    [System.IO.File]::WriteAllText($stagedManifest, $xml, (New-Object System.Text.UTF8Encoding $false))
     Write-Host "    version -> $Version"
 }
 
