@@ -56,6 +56,29 @@ internal static partial class ToastSetup
 
     public static void EnsureRegistered()
     {
+        // Packaged (MSIX): the package owns identity. The OS sets the process
+        // AUMID from the package (<PackageFamilyName>!App) and declares the toast
+        // activator via the manifest — so we must NOT write the HKCU AppUserModelId
+        // block, the CLSID LocalServer32, or a Start Menu .lnk (doing so would
+        // create a competing identity and route toasts to the wrong AUMID). We
+        // only need ResolvedAumid to carry the package AUMID, which every
+        // CreateToastNotifier call site consumes.
+        if (AppPaths.IsPackaged)
+        {
+            var pkgAumid = PackageIdentity.GetApplicationUserModelId();
+            if (!string.IsNullOrEmpty(pkgAumid)) ResolvedAumid = pkgAumid!;
+            // Do NOT call SetCurrentProcessExplicitAppUserModelID — the OS already
+            // set it from package identity and overriding it can break routing.
+            // We still register the class object in the ROT so WARM toast clicks
+            // (app already running) route in-process. COLD clicks are handled by
+            // the manifest's com:ExeServer (-ToastActivated). The HKCU AppUserModelId
+            // block, CLSID LocalServer32, and .lnk are all owned by the package and
+            // intentionally NOT written here.
+            ToastActivatorHost.EnsureRegistered();
+            Log.Write("Toast", $"setup: packaged, aumid={ResolvedAumid}");
+            return;
+        }
+
         try
         {
             // Order matters. The AppUserModelId registry block is the single

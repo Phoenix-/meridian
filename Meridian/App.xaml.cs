@@ -16,11 +16,18 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        // First packaged launch: copy tokens/cache from the old unpackaged
+        // %APPDATA%\Meridian so the user isn't silently logged out. No-op when
+        // unpackaged or already migrated. Must run BEFORE any token read.
+        DataMigration.MigrateFromUnpackagedIfNeeded();
+
         // Toast prerequisite for unpackaged apps: AUMID + Start Menu shortcut.
         // Must run before any ScheduledToastNotification is added.
         // Skip when running under an isolated data dir (UI tests) — toasts
         // aren't exercised there, and we must not stomp the user's real
         // system-wide registrations from a test process.
+        // Skip when packaged too: the package owns identity (EnsureRegistered
+        // still sets ResolvedAumid to the package AUMID and returns early).
         if (!AppPaths.IsIsolated)
             ToastSetup.EnsureRegistered();
 

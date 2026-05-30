@@ -12,10 +12,35 @@ internal static class AppPaths
 {
     private const string EnvName = "MERIDIAN_DATA_DIR";
 
-    public static string Root { get; } =
-        Environment.GetEnvironmentVariable(EnvName)
-        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                        "Meridian");
+    // Where on-disk state lives. Three modes, resolved in priority order:
+    //   1. IsIsolated  — MERIDIAN_DATA_DIR override (test harness).
+    //   2. IsPackaged  — MSIX package-virtualized LocalState. We build the path
+    //      from the package family name (%LOCALAPPDATA%\Packages\<PFN>\LocalState)
+    //      rather than calling the CsWinRT-projected ApplicationData.Current
+    //      .LocalFolder, which would need a trim root under PublishAot.
+    //   3. default     — %APPDATA%\Meridian (unpackaged: F5, portable zip).
+    public static string Root { get; } = ResolveRoot();
+
+    private static string ResolveRoot()
+    {
+        var env = Environment.GetEnvironmentVariable(EnvName);
+        if (env is not null) return env;
+
+        if (PackageIdentity.IsPackaged)
+        {
+            var pfn = PackageIdentity.GetPackageFamilyName();
+            if (!string.IsNullOrEmpty(pfn))
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Packages", pfn, "LocalState");
+            // Identity present but PFN lookup failed: fall through to the default
+            // rather than crash. Worst case the user re-logs in.
+        }
+
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Meridian");
+    }
 
     public static string Cache => Path.Combine(Root, "cache");
     public static string Tokens => Path.Combine(Root, "tokens");
@@ -27,4 +52,10 @@ internal static class AppPaths
     // real install.
     public static bool IsIsolated { get; } =
         Environment.GetEnvironmentVariable(EnvName) is not null;
+
+    // True when running with MSIX package identity. Callers skip the unpackaged
+    // toast registration (the package owns AUMID/activator) and trigger the
+    // one-time data migration from the old unpackaged %APPDATA% location.
+    // Isolation wins: a test harness never counts as packaged.
+    public static bool IsPackaged { get; } = !IsIsolated && PackageIdentity.IsPackaged;
 }
