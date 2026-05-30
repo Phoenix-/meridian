@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest for Meridian. Packaged by packaging/build-msix.ps1 via makeappx
+  over the NativeAOT publish output (NOT a .wapproj — see the plan / notes).
+
+  Publisher is a DEV PLACEHOLDER. It MUST exactly match the signing certificate's
+  subject, or Add-AppxPackage fails with "publisher does not match". The local
+  dev cert created by build-msix.ps1 uses this same CN. Production signing (#7)
+  will replace both the cert and this value.
+-->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+    xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+    IgnorableNamespaces="uap desktop com rescap">
+
+  <Identity
+      Name="Phoenix.Meridian"
+      Publisher="CN=Meridian Dev (PLACEHOLDER)"
+      Version="1.0.0.0"
+      ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Meridian</DisplayName>
+    <PublisherDisplayName>Meridian</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!-- Min matches Meridian.csproj TargetPlatformMinVersion (10.0.17763.0). -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <!-- Id="App" makes the runtime AUMID <PackageFamilyName>!App, which
+         PackageIdentity.GetApplicationUserModelId() returns and the toast
+         notifier consumes. EntryPoint Windows.FullTrustApplication is required
+         for a Win32 / NativeAOT exe packaged as MSIX. -->
+    <Application Id="App"
+        Executable="Meridian.exe"
+        EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+          DisplayName="Meridian"
+          Description="Google Calendar and Tasks client"
+          BackgroundColor="transparent"
+          Square150x150Logo="Assets\Square150x150Logo.png"
+          Square44x44Logo="Assets\Square44x44Logo.png">
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- Toast-click activation: routes a clicked toast back into the running
+             exe via the existing [GeneratedComClass] activator (ToastActivatorIds
+             .Clsid). Under MSIX the activator is declared here instead of being
+             registered into HKCU at runtime (ToastSetup skips that when packaged).
+             Scheduled toasts DISPLAY without this; it's needed only for click
+             handling. CLSID must match ToastActivatorIds.Clsid. -->
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="8A1B6C7D-9E3F-4A2B-B5C8-7D4E9F1A2C3D" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Meridian.exe" Arguments="-ToastActivated" DisplayName="Meridian Toast Activator">
+              <com:Class Id="8A1B6C7D-9E3F-4A2B-B5C8-7D4E9F1A2C3D" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Google Calendar/Tasks REST + OAuth. -->
+    <Capability Name="internetClient" />
+    <!-- Required for a full-trust Win32/AOT exe inside an MSIX. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
