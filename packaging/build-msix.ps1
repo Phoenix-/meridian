@@ -31,9 +31,21 @@
   win-x64-release (AOT, default) or win-x64-r2r (Plan B1 — one-token swap).
 
 .PARAMETER DevSign
-  Create/reuse a self-signed dev cert (subject == manifest Publisher), trust it,
-  and sign the package so Add-AppxPackage works locally. LOCAL/CI dev only —
-  production signing is issue #7.
+  Create/reuse a self-signed dev cert (subject == manifest Publisher) in the
+  CurrentUser store, trust it, and sign the package so Add-AppxPackage works
+  locally. For interactive local use. LOCAL/CI dev only — production signing is #7.
+
+.PARAMETER PfxPath
+  Sign using a .pfx file instead of the cert store. Used by CI: the runner has no
+  persistent cert store, so it decodes a stable dev .pfx from a GitHub secret and
+  passes it here — giving every nightly the SAME signer (unlike -DevSign on a
+  runner, which would mint a throwaway cert per build that nobody can trust).
+  This is the same plumbing #7 will use with the real cert — only the secret
+  changes. DEV-ONLY self-signed cert; not a production credential.
+
+.PARAMETER PfxPassword
+  Password for -PfxPath. Plaintext because signtool /p requires it and the value
+  arrives from a (log-masked) GitHub secret into the runner env. Dev-only.
 
 .PARAMETER SkipPublish
   Reuse an existing AOT publish dir (faster iteration on packaging itself).
@@ -41,11 +53,15 @@
 .EXAMPLE
   ./packaging/build-msix.ps1 -DevSign
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'PfxPassword',
+    Justification = 'signtool /p requires plaintext; value is a dev-only self-signed secret, log-masked in CI')]
 [CmdletBinding()]
 param(
     [ValidateSet('win-x64-release', 'win-x64-r2r')]
     [string]$PublishProfile = 'win-x64-release',
     [switch]$DevSign,
+    [string]$PfxPath,
+    [string]$PfxPassword,
     [switch]$SkipPublish,
     [string]$Version
 )
@@ -175,8 +191,25 @@ $makeappx = Find-SdkTool 'makeappx.exe'
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed ($LASTEXITCODE)" }
 Write-Host "    packed: $msixPath"
 
-# ── 5. dev sign (local sideload only — production signing is #7) ──────────────
-if ($DevSign) {
+# ── 5. sign (DEV ONLY — production signing is #7) ─────────────────────────────
+# Note: $PfxPassword is [string] (plaintext) because signtool /p requires it and
+# the value arrives from a log-masked GitHub secret. Dev-only self-signed cert.
+$signed = $false
+$signtool = $null
+
+if ($PfxPath) {
+    # CI path: sign with the stable dev .pfx (decoded from a GitHub secret). Same
+    # plumbing #7 will use with the real cert — only the secret changes.
+    if (-not (Test-Path $PfxPath)) { throw "PfxPath not found: $PfxPath" }
+    Write-Host "==> Signing with .pfx (DEV cert from secret — not production)..." -ForegroundColor Yellow
+    $signtool = Find-SdkTool 'signtool.exe'
+    & $signtool sign /fd SHA256 /f $PfxPath /p $PfxPassword $msixPath
+    if ($LASTEXITCODE -ne 0) { throw "signtool (pfx) failed ($LASTEXITCODE)" }
+    Write-Host "    signed with pfx."
+    $signed = $true
+}
+elseif ($DevSign) {
+    # Local path: self-signed cert from the CurrentUser store, trusted for sideload.
     Write-Host "==> Dev-signing (LOCAL ONLY — not production)..." -ForegroundColor Yellow
     $subject = ([xml](Get-Content $manifestSrc)).Package.Identity.Publisher
     Write-Host "    cert subject: $subject"
@@ -201,13 +234,14 @@ if ($DevSign) {
     & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint $msixPath
     if ($LASTEXITCODE -ne 0) { throw "signtool failed ($LASTEXITCODE)" }
     Write-Host "    signed."
+    $signed = $true
 }
 
 Write-Host ""
 Write-Host "Done: $msixPath" -ForegroundColor Green
-if ($DevSign) {
+if ($signed) {
     Write-Host "Install:   Add-AppxPackage '$msixPath'"
     Write-Host "Uninstall: Get-AppxPackage *Meridian* | Remove-AppxPackage"
 } else {
-    Write-Host "NOTE: unsigned — sign before Add-AppxPackage (re-run with -DevSign for local install)."
+    Write-Host "NOTE: unsigned — sign before Add-AppxPackage (re-run with -DevSign for local, or -PfxPath for CI)."
 }
