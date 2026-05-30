@@ -106,5 +106,7 @@ jobs:
           files: |
             ${{ env.ZIP_NAME }}
             ${{ env.MSIX_NAME }}
+            packaging/Meridian-Dev.cer
+            packaging/INSTALL.md
           target_commitish: ${{ github.sha }}
           make_latest: "false"
