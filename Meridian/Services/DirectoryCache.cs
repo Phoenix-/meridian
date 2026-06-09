@@ -39,10 +39,10 @@ internal partial class DirectoryCacheJsonContext : JsonSerializerContext { }
 public static class DirectoryCache
 {
     // Positive entries are stable (a person's name/photo rarely changes), so we
-    // hold them a week. Negative entries expire fast so a freshly-onboarded
+    // hold them a month. Negative entries expire fast so a freshly-onboarded
     // colleague — or a directory that came online after first login — resolves
     // without the user having to wait days.
-    private static readonly TimeSpan PositiveTtl = TimeSpan.FromDays(7);
+    private static readonly TimeSpan PositiveTtl = TimeSpan.FromDays(30);
     private static readonly TimeSpan NegativeTtl = TimeSpan.FromDays(1);
 
     private static readonly Lock _gate = new();
