@@ -41,6 +41,12 @@ public static class GoogleOAuthClient
         // See gh issue #8 for the verification plan.
         "https://www.googleapis.com/auth/calendar",
         "https://www.googleapis.com/auth/tasks",
+        // Read-only org-directory access for resolving attendee names/photos
+        // from the Workspace directory (People API searchDirectoryPeople).
+        // Sensitive, not restricted (no CASA). Adding it changes the consent
+        // set, so existing users get re-prompted once — the typed re-auth path
+        // (AccountAuthExpiredException + "!" badge) already covers that.
+        "https://www.googleapis.com/auth/directory.readonly",
         "email", "profile",
     ];
 

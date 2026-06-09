@@ -1,7 +1,9 @@
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
+using Meridian.Auth;
 using Meridian.Models;
+using Meridian.Services;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -311,6 +313,12 @@ public sealed partial class EventDetailsFlyout : UserControl
         };
         middle.Children.Add(name);
 
+        // Pull a human name from the org directory for this attendee. Uses the
+        // cache for instant hits; otherwise resolves in the background and
+        // updates this row's name when it arrives. Photo data lands in the
+        // cache too (rendered in a later stage).
+        ResolveDirectoryName(a, name);
+
         var subParts = new List<string>();
         if (a.IsOrganizer) subParts.Add("организатор");
         if (a.IsOptional) subParts.Add("необязательно");
@@ -340,13 +348,64 @@ public sealed partial class EventDetailsFlyout : UserControl
         var label = !string.IsNullOrWhiteSpace(a.DisplayName)
             ? a.DisplayName!
             : DeriveNameFromEmail(a.Email);
-        return a.IsSelf ? $"{label} (вы)" : label;
+        return DecorateName(a, label);
     }
+
+    // Applies the per-attendee decoration (currently the "(вы)" marker for the
+    // signed-in user) to a bare label. Single source of truth shared by the
+    // initial-paint formatter and the directory-resolved name patch.
+    private static string DecorateName(EventAttendee a, string label) =>
+        a.IsSelf ? $"{label} (вы)" : label;
 
     private static string DeriveNameFromEmail(string email)
     {
         var at = email.IndexOf('@');
         return at > 0 ? email[..at] : email;
+    }
+
+    // Resolves the attendee's display name from the org directory and updates
+    // the given TextBlock in place. Cache hits apply synchronously; misses
+    // resolve in the background and patch the row when (and if) a name comes
+    // back. Anything missing — no account, personal Gmail (no directory),
+    // external guest, network hiccup — silently leaves the existing label.
+    private void ResolveDirectoryName(EventAttendee a, TextBlock nameBlock)
+    {
+        if (_event?.AccountEmail is not { Length: > 0 } accountEmail) return;
+        if (string.IsNullOrWhiteSpace(a.Email)) return;
+
+        var account = new AccountId(GoogleOAuthClient.ProviderName, accountEmail);
+
+        // Instant path: a fresh positive cache entry.
+        if (DirectoryCache.TryGet(account, a.Email, out var cached))
+        {
+            ApplyResolvedName(a, nameBlock, cached.DisplayName);
+            return;
+        }
+
+        // Background path: resolve, then patch on the UI thread. Fire-and-forget
+        // by design — the row is already showing a usable fallback label.
+        _ = ResolveInBackgroundAsync(account, a, nameBlock);
+    }
+
+    private async Task ResolveInBackgroundAsync(AccountId account, EventAttendee a, TextBlock nameBlock)
+    {
+        DirectoryPerson? person;
+        try { person = await DirectoryCache.ResolveAsync(account, a.Email); }
+        catch (AccountAuthExpiredException) { return; } // re-auth surfaced by sync paths
+        catch { return; }
+
+        if (person?.DisplayName is not { Length: > 0 } name) return;
+
+        DispatcherQueue.TryEnqueue(() => ApplyResolvedName(a, nameBlock, name));
+    }
+
+    // Writes a directory-resolved name onto the row, only if it actually adds
+    // information — never overwrite an existing label with a blank, and keep the
+    // "(вы)" suffix for the signed-in user.
+    private static void ApplyResolvedName(EventAttendee a, TextBlock nameBlock, string? resolved)
+    {
+        if (string.IsNullOrWhiteSpace(resolved)) return;
+        nameBlock.Text = DecorateName(a, resolved);
     }
 
     // Renders the colored circle with the attendee's initial. Color is a

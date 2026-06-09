@@ -147,6 +147,7 @@ public sealed class GoogleApiClient(AccountId id)
 {
     private const string CalendarBase = "https://www.googleapis.com/calendar/v3";
     private const string TasksBase    = "https://www.googleapis.com/tasks/v1";
+    private const string PeopleBase   = "https://people.googleapis.com/v1";
 
     private static readonly HttpClient _http = new();
 
@@ -354,6 +355,70 @@ public sealed class GoogleApiClient(AccountId id)
         }
 
         return allTasks;
+    }
+
+    // Result of a directory lookup: the display name and/or photo URL Google's
+    // org directory holds for an email. Either field may be null; PhotoUrl is a
+    // real (non-default) profile photo only. A null *return* from
+    // SearchDirectoryPersonAsync means "not found / no directory" (distinct from
+    // "found but no name"), which the cache stores as a negative marker.
+    public readonly record struct DirectoryLookup(string? DisplayName, string? PhotoUrl);
+
+    // Resolves a single email against the account's Workspace directory via
+    // People API searchDirectoryPeople. Returns null when the directory has no
+    // match, or when this account has no directory at all (personal Gmail →
+    // HTTP 403). 403 here is NOT treated as auth-expired: it means "no directory
+    // for this account", not "token rejected" — so we swallow it rather than
+    // surfacing re-auth UI. 401 still flows through to AccountAuthExpired.
+    //
+    // searchDirectoryPeople matches by substring across name/email, so we ask
+    // for a few results and pick the entry whose emailAddresses contains the
+    // exact email (case-insensitive) — guarding against a prefix matching a
+    // colleague (e.g. "ann@" also matching "anna@").
+    public async Task<DirectoryLookup?> SearchDirectoryPersonAsync(string email, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return null;
+
+        var token = await GoogleOAuthClient.GetAccessTokenAsync(id, ct);
+        var url = $"{PeopleBase}/people:searchDirectoryPeople" +
+                  $"?query={Uri.EscapeDataString(email)}" +
+                  $"&readMask=names,emailAddresses,photos" +
+                  $"&sources=DIRECTORY_SOURCE_TYPE_DOMAIN_PROFILE" +
+                  $"&pageSize=5";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Authorization = new("Bearer", token);
+        using var resp = await _http.SendAsync(req, ct);
+
+        // No directory for this account (personal Gmail, or directory access
+        // disabled by the admin) → treat as "not found", let the caller skip.
+        if (resp.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            return null;
+
+        await EnsureSuccessOrAuthExpiredAsync(resp, ct);
+        var page = await resp.Content.ReadFromJsonAsync(DirectoryApiJsonContext.Default.DirectorySearchResponse, ct);
+
+        var person = FindByEmail(page?.People, email);
+        if (person is null) return null;
+
+        var name  = person.Names?.FirstOrDefault(n => !string.IsNullOrWhiteSpace(n.DisplayName))?.DisplayName;
+        var photo = person.Photos?.FirstOrDefault(p => p.Default != true && !string.IsNullOrWhiteSpace(p.Url))?.Url;
+        if (name is null && photo is null) return null;
+
+        return new DirectoryLookup(name, photo);
+    }
+
+    private static DirectoryPersonDto? FindByEmail(List<DirectoryPersonDto>? people, string email)
+    {
+        if (people is null) return null;
+        foreach (var p in people)
+        {
+            if (p.EmailAddresses is null) continue;
+            foreach (var e in p.EmailAddresses)
+                if (string.Equals(e.Value, email, StringComparison.OrdinalIgnoreCase))
+                    return p;
+        }
+        return null;
     }
 
     private async Task<TaskListList?> GetTaskListListAsync(string url, string token, CancellationToken ct)

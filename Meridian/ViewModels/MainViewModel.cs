@@ -205,6 +205,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _events.InvalidateAll();
         _tasks.InvalidateAll();
         _calendarLists.InvalidateAll();
+        DirectoryCache.InvalidateAll();
         _calendarLists.RefreshAll();
         Refresh();
     }
@@ -216,6 +217,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _events.InvalidateAccount(account);
         _tasks.InvalidateAccount(account);
         _calendarLists.InvalidateAccount(account);
+        DirectoryCache.InvalidateAccount(account);
         _reminders.DropAccount(account);
         Refresh();
     }
