@@ -1,7 +1,9 @@
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text.RegularExpressions;
 using Meridian.Auth;
+using Meridian.Diagnostics;
 using Meridian.Models;
 using Meridian.Services;
 using Microsoft.UI;
@@ -298,9 +300,14 @@ public sealed partial class EventDetailsFlyout : UserControl
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-        var avatar = BuildAvatar(a);
+        var avatar = BuildAvatar(a, out var photoTarget);
         Grid.SetColumn(avatar, 0);
         grid.Children.Add(avatar);
+
+        // Try to paint the directory profile photo over the initial bubble.
+        // Cache hit or download — resolves in the background; the colored
+        // initial stays as the placeholder/fallback if there's no photo.
+        ResolveDirectoryPhoto(a, photoTarget);
 
         var middle = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         var name = new TextBlock
@@ -410,8 +417,12 @@ public sealed partial class EventDetailsFlyout : UserControl
 
     // Renders the colored circle with the attendee's initial. Color is a
     // deterministic hash of the email so the same person looks the same
-    // across re-renders and across events.
-    private static FrameworkElement BuildAvatar(EventAttendee a)
+    // across re-renders and across events. The returned photoTarget is a
+    // transparent overlay ellipse sized to the bubble; ResolveDirectoryPhoto
+    // fills it with an ImageBrush once (and if) a profile photo loads, hiding
+    // the initial underneath. No photo → it stays transparent and the initial
+    // shows through.
+    private static FrameworkElement BuildAvatar(EventAttendee a, out Ellipse photoTarget)
     {
         var color = ColorFromEmail(a.Email);
         var initial = GetInitial(a.DisplayName, a.Email);
@@ -436,8 +447,92 @@ public sealed partial class EventDetailsFlyout : UserControl
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         });
+        photoTarget = new Ellipse { Width = 28, Height = 28 };
+        grid.Children.Add(photoTarget);
         return grid;
     }
+
+    // Loads the attendee's directory profile photo (from the per-URL disk cache
+    // or a one-time download) and paints it onto the avatar's overlay ellipse.
+    // Fire-and-forget: the row already shows the colored initial, so any miss —
+    // no account, no photo, network error — silently leaves that in place.
+    // Decoded profile photos, keyed by photo URL, kept alive for the process so
+    // re-opening a flyout doesn't re-read the file and re-decode the JPEG every
+    // time. BitmapImage is a UI-thread object — this cache is only ever touched
+    // on the UI thread (ResolveDirectoryPhoto runs during row build; ApplyPhoto
+    // runs via DispatcherQueue), so a plain Dictionary is safe without a lock.
+    private static readonly Dictionary<string, Microsoft.UI.Xaml.Media.Imaging.BitmapImage> _photoBitmaps = [];
+
+    private void ResolveDirectoryPhoto(EventAttendee a, Ellipse target)
+    {
+        if (_event?.AccountEmail is not { Length: > 0 } accountEmail) return;
+        if (string.IsNullOrWhiteSpace(a.Email)) return;
+
+        var account = new AccountId(GoogleOAuthClient.ProviderName, accountEmail);
+
+        // Fully-warm path: name+URL already resolved and the bitmap already
+        // decoded — paint synchronously during build, no flicker, no Task.
+        if (DirectoryCache.TryGet(account, a.Email, out var cached)
+            && cached.PhotoUrl is { Length: > 0 } url
+            && _photoBitmaps.TryGetValue(url, out var bmp))
+        {
+            PaintPhoto(target, bmp);
+            return;
+        }
+
+        _ = LoadPhotoAsync(account, a.Email, target);
+    }
+
+    private async Task LoadPhotoAsync(AccountId account, string email, Ellipse target)
+    {
+        // The photo URL is only known once the person is resolved. ResolveAsync
+        // returns the cached entry instantly on a hit, or the shared in-flight
+        // resolve otherwise — coalesced with the name path on this same row, so
+        // both get the same result rather than racing.
+        DirectoryPerson? person;
+        try { person = await DirectoryCache.ResolveAsync(account, email); }
+        catch { return; }
+
+        var url = person?.PhotoUrl;
+        if (string.IsNullOrWhiteSpace(url)) return;
+
+        byte[]? bytes;
+        try { bytes = await DirectoryPhotoCache.GetAsync(url); }
+        catch { return; }
+        if (bytes is not { Length: > 0 }) return;
+
+        DispatcherQueue.TryEnqueue(() => ApplyPhoto(target, url, bytes));
+    }
+
+    // Decodes the photo bytes into a BitmapImage, caches it by URL, and paints
+    // it onto the overlay ellipse. Runs on the UI thread (image decode and the
+    // bitmap cache both require it). Any decode hiccup leaves the initial bubble.
+    private static async void ApplyPhoto(Ellipse target, string url, byte[] bytes)
+    {
+        try
+        {
+            // Another row for the same person may have decoded it first.
+            if (!_photoBitmaps.TryGetValue(url, out var bitmap))
+            {
+                bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                using var stream = new MemoryStream(bytes);
+                await bitmap.SetSourceAsync(stream.AsRandomAccessStream());
+                _photoBitmaps[url] = bitmap;
+            }
+            PaintPhoto(target, bitmap);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Directory", ex, "photo decode failed");
+        }
+    }
+
+    private static void PaintPhoto(Ellipse target, Microsoft.UI.Xaml.Media.Imaging.BitmapImage bitmap) =>
+        target.Fill = new ImageBrush
+        {
+            ImageSource = bitmap,
+            Stretch = Stretch.UniformToFill,
+        };
 
     private static string GetInitial(string? displayName, string email)
     {

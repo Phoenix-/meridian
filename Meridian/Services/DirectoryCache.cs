@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Meridian.Auth;
 using Meridian.Diagnostics;
+using Meridian.Models;
 
 namespace Meridian.Services;
 
@@ -10,6 +11,7 @@ namespace Meridian.Services;
 // (external guest, or a personal-Gmail account with no directory at all). We
 // keep negatives so we don't re-query them on every flyout open, but with a
 // short TTL so a newly-added colleague eventually resolves.
+[CacheSchema]
 public sealed class DirectoryPerson
 {
     public string Email { get; set; } = "";
@@ -21,8 +23,18 @@ public sealed class DirectoryPerson
     public long StoredAtUtcTicks { get; set; }
 }
 
+// On-disk wrapper. SchemaHash guards against silently reading back stale-shaped
+// entries when DirectoryPerson gains/loses/retypes a field — exactly the trap
+// that left PhotoUrl-less Stage 1 entries alive after Stage 2 added photos. The
+// hash is compile-time derived (see CacheSchemaGenerator); a mismatch on load is
+// treated as a miss and the file is dropped, forcing a clean re-resolve.
+[CacheSchema]
 internal sealed class DirectoryCacheData
 {
+    public static string CurrentSchemaHash =>
+        SchemaHashes.DirectoryPerson + SchemaHashes.DirectoryCacheData;
+
+    public string? SchemaHash { get; set; }
     public List<DirectoryPerson> People { get; set; } = [];
 }
 
@@ -51,9 +63,12 @@ public static class DirectoryCache
     private static readonly Dictionary<AccountId, Dictionary<string, DirectoryPerson>> _byAccount = [];
     private static readonly HashSet<AccountId> _hydrated = [];
 
-    // Emails currently being resolved over the network, so concurrent flyout
-    // rows for the same person don't fire duplicate requests.
-    private static readonly HashSet<(AccountId, string)> _inFlight = [];
+    // Emails currently being resolved over the network, mapped to the single
+    // shared resolve Task. Concurrent callers for the same email (e.g. the name
+    // path and the photo path on one row) await the same Task and all see the
+    // same result — rather than one firing the request and the others getting a
+    // null "someone else is doing it" sentinel.
+    private static readonly Dictionary<(AccountId, string), Task<DirectoryPerson?>> _inFlight = [];
 
     private static string DirForAccount(AccountId account) =>
         Path.Combine(AppPaths.Cache, "directory");
@@ -91,9 +106,9 @@ public static class DirectoryCache
     // entry. Returns the resolved person (positive or negative marker), or null
     // if the lookup couldn't run (network/cancellation) — callers treat null as
     // "leave the current label alone".
-    public static async Task<DirectoryPerson?> ResolveAsync(AccountId account, string email, CancellationToken ct = default)
+    public static Task<DirectoryPerson?> ResolveAsync(AccountId account, string email, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(email)) return null;
+        if (string.IsNullOrWhiteSpace(email)) return Task.FromResult<DirectoryPerson?>(null);
         var key = Normalize(email);
 
         lock (_gate)
@@ -102,19 +117,31 @@ public static class DirectoryCache
             if (_byAccount.TryGetValue(account, out var map)
                 && map.TryGetValue(key, out var cached)
                 && !IsExpired(cached))
-                return cached;
+                return Task.FromResult<DirectoryPerson?>(cached);
 
-            // Coalesce concurrent resolves of the same email.
-            if (!_inFlight.Add((account, key)))
-                return null;
+            // One shared resolve per (account, email): the first caller starts
+            // the fetch and registers its Task; concurrent callers await that
+            // same Task and all observe the same result. We pass CancellationToken
+            // .None into the shared fetch deliberately — a cancel from one caller
+            // (e.g. a closed flyout) must not abort the lookup the others are
+            // still waiting on.
+            if (!_inFlight.TryGetValue((account, key), out var inflight))
+            {
+                inflight = FetchAndStoreAsync(account, key, email);
+                _inFlight[(account, key)] = inflight;
+            }
+            return inflight;
         }
+    }
 
+    private static async Task<DirectoryPerson?> FetchAndStoreAsync(AccountId account, string key, string email)
+    {
         try
         {
             DirectoryPerson entry;
             try
             {
-                var lookup = await new GoogleApiClient(account).SearchDirectoryPersonAsync(email, ct);
+                var lookup = await new GoogleApiClient(account).SearchDirectoryPersonAsync(email);
                 entry = new DirectoryPerson
                 {
                     Email = email,
@@ -129,11 +156,7 @@ public static class DirectoryCache
                 // Auth problems are not a directory miss — don't poison the
                 // cache with a negative entry. Let the existing sync paths
                 // surface re-auth; we just decline to resolve this time.
-                throw;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
+                return null;
             }
             catch (Exception ex)
             {
@@ -163,6 +186,9 @@ public static class DirectoryCache
             try { File.Delete(PathForAccount(account)); }
             catch (Exception ex) { Log.Error("Directory", ex, $"delete failed for {account}"); }
         }
+        // Opportunistically sweep photo files no longer touched within their
+        // TTL. Outside the lock — disk-only, self-guarding.
+        DirectoryPhotoCache.PruneOld();
     }
 
     // Drops all cached directory state (memory + disk). Pairs with the
@@ -179,6 +205,8 @@ public static class DirectoryCache
             _byAccount.Clear();
             _hydrated.Clear();
         }
+        // Nothing references any photo now — drop the whole photo cache.
+        DirectoryPhotoCache.Clear();
     }
 
     private static void Store(AccountId account, string key, DirectoryPerson entry)
@@ -220,6 +248,14 @@ public static class DirectoryCache
             var data = JsonSerializer.Deserialize(stream, DirectoryCacheJsonContext.Default.DirectoryCacheData);
             if (data?.People is null) return;
 
+            // Drop a stale-shaped file (an older field layout) so we re-resolve
+            // from scratch instead of serving entries missing newer fields.
+            if (data.SchemaHash != DirectoryCacheData.CurrentSchemaHash)
+            {
+                try { File.Delete(path); } catch { /* best-effort */ }
+                return;
+            }
+
             var map = new Dictionary<string, DirectoryPerson>();
             foreach (var p in data.People)
                 if (!string.IsNullOrWhiteSpace(p.Email))
@@ -237,7 +273,11 @@ public static class DirectoryCache
         try
         {
             Directory.CreateDirectory(DirForAccount(account));
-            var data = new DirectoryCacheData { People = [.. map.Values] };
+            var data = new DirectoryCacheData
+            {
+                SchemaHash = DirectoryCacheData.CurrentSchemaHash,
+                People = [.. map.Values],
+            };
             using var stream = File.Create(PathForAccount(account));
             JsonSerializer.Serialize(stream, data, DirectoryCacheJsonContext.Default.DirectoryCacheData);
         }
