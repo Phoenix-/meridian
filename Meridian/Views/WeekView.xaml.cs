@@ -230,7 +230,7 @@ public sealed partial class WeekView : Page, ICalendarView
             var color = EventColorPicker.Pick(ev, accountIndex);
             var textColor = EventColorPicker.PickText(ev);
             var chip = new MonthEventChip();
-            chip.Apply(new EventChipData(ev.Title, color, textColor, null, true, ev));
+            chip.Apply(new EventChipData(ev.Title, color, textColor, null, true, ev, RsvpChipStyle.StatusFor(ev)));
             Grid.SetColumn(chip, col);
             Grid.SetColumnSpan(chip, endCol - col + 1);
             Grid.SetRow(chip, r);

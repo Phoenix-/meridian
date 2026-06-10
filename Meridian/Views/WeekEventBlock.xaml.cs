@@ -24,13 +24,24 @@ public sealed partial class WeekEventBlock : UserControl
     {
         _event = ev;
 
-        Root.Background = new SolidColorBrush(color);
-        Root.BorderBrush = (SolidColorBrush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
-
         var fg = textColor ?? EventColorPicker.PickReadable(color);
-        var fgBrush = new SolidColorBrush(fg);
+        var status = RsvpChipStyle.StatusFor(ev);
+
+        // RSVP look (fill/border + text foreground + strikethrough). For the
+        // filled/muted states this paints both text blocks in `fg`; we re-dim
+        // the time line just below. For needsAction it themes the text and the
+        // border becomes the shared pulse — leave those as the helper set them.
+        RsvpChipStyle.Apply(status, Root, color, fg, TitleText, TimeText);
+
+        // Keep the 2px separator border in the filled/muted states (needsAction
+        // owns the border for its outline, so don't stomp it there).
+        if (!RsvpChipStyle.IsNeedsAction(status))
+        {
+            Root.BorderThickness = new Thickness(2);
+            Root.BorderBrush = (SolidColorBrush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
+        }
+
         var fgDim = new SolidColorBrush(Color.FromArgb(200, fg.R, fg.G, fg.B));
-        TitleText.Foreground = fgBrush;
 
         var startStr = ev.Start.ToString("HH:mm");
         var timeRange = $"{startStr}–{ev.End:HH:mm}";
@@ -47,7 +58,10 @@ public sealed partial class WeekEventBlock : UserControl
         {
             TitleText.Text = ev.Title;
             TimeText.Text = timeRange;
-            TimeText.Foreground = fgDim;
+            // For needsAction the helper themed the time text for contrast over
+            // the cell background — don't override it with the event-color dim.
+            if (!RsvpChipStyle.IsNeedsAction(status))
+                TimeText.Foreground = fgDim;
             TimeText.Visibility = Visibility.Visible;
         }
         else

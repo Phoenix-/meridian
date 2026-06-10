@@ -192,7 +192,7 @@ public sealed partial class DayView : Page, ICalendarView
             var color = EventColorPicker.Pick(ev, accountIndex);
             var textColor = EventColorPicker.PickText(ev);
             var chip = new MonthEventChip();
-            chip.Apply(new EventChipData(ev.Title, color, textColor, null, true, ev));
+            chip.Apply(new EventChipData(ev.Title, color, textColor, null, true, ev, RsvpChipStyle.StatusFor(ev)));
 
             int row = AllDayGrid.RowDefinitions.Count;
             AllDayGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(24) });

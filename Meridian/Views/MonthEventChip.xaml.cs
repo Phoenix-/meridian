@@ -22,10 +22,10 @@ public sealed partial class MonthEventChip : UserControl
 
     public void Apply(EventChipData data)
     {
-        Root.Background = new SolidColorBrush(data.Color);
-        var fg = new SolidColorBrush(data.TextColor ?? EventColorPicker.PickReadable(data.Color));
-        TitleText.Foreground = fg;
-        TimeText.Foreground = fg;
+        var fg = data.TextColor ?? EventColorPicker.PickReadable(data.Color);
+        // Sets Root background/border + text foreground/decoration based on the
+        // user's RSVP status (null for tasks / non-invitations → plain fill).
+        RsvpChipStyle.Apply(data.ResponseStatus, Root, data.Color, fg, TitleText, TimeText);
         TitleText.Text = data.Title;
 
         if (data.StartTime.HasValue)
