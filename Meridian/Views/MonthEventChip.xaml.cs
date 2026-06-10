@@ -1,4 +1,5 @@
 using Meridian.Models;
+using Meridian.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -58,6 +59,8 @@ public sealed partial class MonthEventChip : UserControl
     {
         var menu = new MenuFlyout();
 
+        AddRsvpItems(menu, ev);
+
         if (!string.IsNullOrEmpty(ev.HtmlLink))
         {
             var openItem = new MenuFlyoutItem { Text = "Открыть в Google Calendar" };
@@ -95,6 +98,40 @@ public sealed partial class MonthEventChip : UserControl
 
         menu.XamlRoot = target.XamlRoot;
         menu.ShowAt(target, position);
+    }
+
+    // Prepends Yes/No/Maybe RSVP items (with a check on the current choice) plus
+    // a separator, but only when the user can respond — i.e. they're an attendee
+    // on a writable calendar and the feature is wired. Mirrors the flyout's
+    // affordance for a quicker right-click path. The cache handles the optimistic
+    // update + PATCH + reconcile, so here we just fire and forget.
+    private static void AddRsvpItems(MenuFlyout menu, CalendarEvent ev)
+    {
+        if (EventActions.CanRespond is not { } canRespond
+            || EventActions.Respond is not { } respond
+            || !canRespond(ev))
+            return;
+
+        var current = EventActions.SelfAttendee(ev)?.ResponseStatus;
+
+        menu.Items.Add(MakeRsvpItem("Принять", EventActions.Accepted, current, ev, respond));
+        menu.Items.Add(MakeRsvpItem("Отклонить", EventActions.Declined, current, ev, respond));
+        menu.Items.Add(MakeRsvpItem("Возможно", EventActions.Tentative, current, ev, respond));
+        menu.Items.Add(new MenuFlyoutSeparator());
+    }
+
+    private static ToggleMenuFlyoutItem MakeRsvpItem(
+        string text, string status, string? current,
+        CalendarEvent ev, Func<CalendarEvent, string, System.Threading.Tasks.Task<bool>> respond)
+    {
+        var item = new ToggleMenuFlyoutItem { Text = text, IsChecked = current == status };
+        item.Click += (_, _) =>
+        {
+            // Clicking the active choice is a no-op; the cache short-circuits it.
+            if (current == status) return;
+            _ = respond(ev, status);
+        };
+        return item;
     }
 
     // Needed by DayCellControl.Refit() to probe chip height
