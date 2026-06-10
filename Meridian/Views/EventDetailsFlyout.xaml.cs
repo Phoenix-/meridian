@@ -70,6 +70,8 @@ public sealed partial class EventDetailsFlyout : UserControl
         else
             CalendarText.Text = calText;
 
+        SetupRsvp(ev);
+
         if (!string.IsNullOrWhiteSpace(ev.Description))
         {
             BuildDescription(ev.Description);
@@ -127,6 +129,80 @@ public sealed partial class EventDetailsFlyout : UserControl
             await Launcher.LaunchUriAsync(uri);
 
         _owningFlyout?.Hide();
+    }
+
+    // ── RSVP (accept / decline / tentative) ─────────────────────────────────────
+
+    // Guards against re-entrant clicks while a PATCH is in flight. The cache
+    // updates optimistically so the toggle reflects the new state immediately;
+    // we just don't want a second click racing the first.
+    private bool _rsvpBusy;
+
+    private void SetupRsvp(CalendarEvent ev)
+    {
+        // Feature unavailable (view model not wired) or the user can't respond
+        // (not an attendee, or read-only calendar) → leave the row collapsed.
+        if (EventActions.CanRespond is not { } canRespond
+            || EventActions.Respond is null
+            || !canRespond(ev))
+            return;
+
+        RsvpStack.Visibility = Visibility.Visible;
+        ReflectRsvpState(EventActions.SelfAttendee(ev)?.ResponseStatus);
+    }
+
+    // Highlights the toggle matching the current responseStatus. "needsAction"
+    // or anything unrecognized leaves all three unset.
+    private void ReflectRsvpState(string? status)
+    {
+        RsvpYes.IsChecked   = status == EventActions.Accepted;
+        RsvpNo.IsChecked    = status == EventActions.Declined;
+        RsvpMaybe.IsChecked = status == EventActions.Tentative;
+    }
+
+    private void OnRsvpYesClick(object sender, RoutedEventArgs e) => _ = RespondAsync(EventActions.Accepted);
+    private void OnRsvpNoClick(object sender, RoutedEventArgs e) => _ = RespondAsync(EventActions.Declined);
+    private void OnRsvpMaybeClick(object sender, RoutedEventArgs e) => _ = RespondAsync(EventActions.Tentative);
+
+    private async Task RespondAsync(string status)
+    {
+        if (_event is null || EventActions.Respond is not { } respond) return;
+        if (_rsvpBusy) { ReflectRsvpState(EventActions.SelfAttendee(_event)?.ResponseStatus); return; }
+
+        // Clicking the already-active choice is a no-op. Re-pin the toggles
+        // (ToggleButton flips itself off on click) and skip the round-trip so
+        // the buttons don't briefly gray out for nothing.
+        var current = EventActions.SelfAttendee(_event)?.ResponseStatus;
+        if (current == status) { ReflectRsvpState(current); return; }
+
+        _rsvpBusy = true;
+        RsvpError.Visibility = Visibility.Collapsed;
+        // Pin the toggles to the chosen state immediately; the cache mutates the
+        // model optimistically too, so this just keeps the UI consistent before
+        // the await resumes (and avoids the toggle flicking off on click).
+        ReflectRsvpState(status);
+        SetRsvpEnabled(false);
+
+        bool ok;
+        try { ok = await respond(_event, status); }
+        catch { ok = false; }
+
+        SetRsvpEnabled(true);
+        _rsvpBusy = false;
+
+        if (!ok)
+        {
+            // The cache reverted its optimistic change; mirror that and show why.
+            ReflectRsvpState(EventActions.SelfAttendee(_event)?.ResponseStatus);
+            RsvpError.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void SetRsvpEnabled(bool enabled)
+    {
+        RsvpYes.IsEnabled = enabled;
+        RsvpNo.IsEnabled = enabled;
+        RsvpMaybe.IsEnabled = enabled;
     }
 
     private static string FormatTimeRange(CalendarEvent ev)

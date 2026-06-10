@@ -60,6 +60,24 @@ internal class ReminderInfo
     [JsonPropertyName("overrides")]  public List<ReminderOverride>? Overrides { get; set; }
 }
 
+// Body of a PATCH that updates only the attendees array (to change the
+// signed-in user's responseStatus). A PATCH replaces the attendees array
+// wholesale rather than merging it, so we must send every attendee back —
+// dropping rooms/guests here would delete them from the event.
+internal class EventPatchBody
+{
+    [JsonPropertyName("attendees")] public List<AttendeePatchDto>? Attendees { get; set; }
+}
+
+internal class AttendeePatchDto
+{
+    [JsonPropertyName("email")]          public string? Email { get; set; }
+    [JsonPropertyName("responseStatus")] public string? ResponseStatus { get; set; }
+    // Round-trip the resource flag so meeting rooms stay rooms after the patch.
+    [JsonPropertyName("resource")]       public bool? Resource { get; set; }
+    [JsonPropertyName("optional")]       public bool? Optional { get; set; }
+}
+
 internal class ReminderOverride
 {
     [JsonPropertyName("method")]  public string? Method { get; set; }
@@ -123,6 +141,7 @@ internal class TaskDto
 [JsonSerializable(typeof(CalendarListResponse))]
 [JsonSerializable(typeof(TaskListList))]
 [JsonSerializable(typeof(TaskList))]
+[JsonSerializable(typeof(EventPatchBody))]
 internal partial class GoogleApiJsonContext : JsonSerializerContext { }
 
 // ── Client ─────────────────────────────────────────────────────────────────────
@@ -175,6 +194,57 @@ public sealed class GoogleApiClient(AccountId id)
         var baseUrl = $"{CalendarBase}/calendars/{Uri.EscapeDataString(calendarId)}/events" +
                       $"?syncToken={Uri.EscapeDataString(syncToken)}";
         return await PageSyncAsync(baseUrl, defaultPopupMinutes, ct);
+    }
+
+    // Sets the signed-in user's responseStatus on an event (accept / decline /
+    // tentatively accept). PATCHes the attendees array, sending the full guest +
+    // room list back with the self entry's status changed — Google replaces the
+    // attendees array on PATCH rather than merging, so an omitted attendee would
+    // be removed from the event. sendUpdates=all so the organizer is notified,
+    // matching Google Calendar Web behaviour. For a recurring series this targets
+    // the single expanded instance whose id is passed (we sync with
+    // singleEvents=true), so the response applies to that occurrence only.
+    //
+    // guests and rooms are the event's current people / resource attendees (kept
+    // in separate lists by the model); status is one of accepted/declined/
+    // tentative. Returns once Google has accepted the change.
+    public async Task SetMyResponseStatusAsync(
+        string calendarId, string eventId,
+        IReadOnlyList<EventAttendee> guests, IReadOnlyList<EventAttendee>? rooms,
+        string status, CancellationToken ct = default)
+    {
+        var token = await GoogleOAuthClient.GetAccessTokenAsync(id, ct);
+
+        var patched = new List<AttendeePatchDto>();
+        foreach (var a in guests)
+            patched.Add(new AttendeePatchDto
+            {
+                Email = a.Email,
+                // Carry each attendee's existing status through unchanged; flip
+                // only our own copy to the requested response.
+                ResponseStatus = a.IsSelf ? status : a.ResponseStatus,
+                Optional = a.IsOptional ? true : null,
+            });
+        foreach (var r in rooms ?? [])
+            patched.Add(new AttendeePatchDto
+            {
+                Email = r.Email,
+                ResponseStatus = r.ResponseStatus,
+                Resource = true,
+            });
+
+        var body = new EventPatchBody { Attendees = patched };
+
+        var url = $"{CalendarBase}/calendars/{Uri.EscapeDataString(calendarId)}/events/{Uri.EscapeDataString(eventId)}" +
+                  $"?sendUpdates=all";
+
+        using var req = new HttpRequestMessage(HttpMethod.Patch, url)
+        {
+            Content = JsonContent.Create(body, GoogleApiJsonContext.Default.EventPatchBody),
+        };
+        req.Headers.Authorization = new("Bearer", token);
+        using var resp = await _http.SendAsync(req, ct);
+        await EnsureSuccessOrAuthExpiredAsync(resp, ct);
     }
 
     private async Task<EventSyncResult> PageSyncAsync(

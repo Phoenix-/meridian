@@ -40,4 +40,10 @@ public sealed class GoogleCalendarProvider : ICalendarProvider
 
     public Task<List<TaskItem>> GetTasksAsync(AccountId id, CancellationToken ct = default) =>
         new GoogleApiClient(id).GetTasksAsync(ct);
+
+    public Task SetMyResponseStatusAsync(
+        AccountId id, string calendarId, string eventId,
+        IReadOnlyList<EventAttendee> guests, IReadOnlyList<EventAttendee>? rooms,
+        string status, CancellationToken ct = default) =>
+        new GoogleApiClient(id).SetMyResponseStatusAsync(calendarId, eventId, guests, rooms, status, ct);
 }

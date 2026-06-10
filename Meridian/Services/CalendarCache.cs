@@ -113,6 +113,89 @@ public sealed class CalendarCache
         return null;
     }
 
+    /// True when the signed-in user can RSVP to this event: they appear in the
+    /// attendee list (so there's a response to set) AND the owning calendar is
+    /// writable. Read-only calendars (accessRole reader/freeBusyReader) can't be
+    /// patched, so we don't offer the affordance. Synchronous — used by the UI to
+    /// decide whether to show Yes/No/Maybe at all.
+    public bool CanRespond(CalendarEvent ev)
+    {
+        if (EventActions.SelfAttendee(ev) is null) return false;
+        if (ev.AccountEmail is not { Length: > 0 } email || ev.CalendarId is not { Length: > 0 } calId)
+            return false;
+        if (ResolveAccount(email) is not { } account) return false;
+        var cal = LookupCalendar(account, calId);
+        return cal is not null && IsWritableRole(cal.AccessRole);
+    }
+
+    private AccountId? ResolveAccount(string email)
+    {
+        foreach (var a in _accounts.Ids)
+            if (string.Equals(a.Email, email, StringComparison.OrdinalIgnoreCase))
+                return a;
+        return null;
+    }
+
+    private static bool IsWritableRole(string accessRole) =>
+        accessRole is "owner" or "writer";
+
+    /// Sets the signed-in user's RSVP on an event. Updates the local copy
+    /// optimistically and fires DataRefreshed so the UI reflects the choice
+    /// immediately, then PATCHes Google and kicks a background incremental sync
+    /// to reconcile. On failure the optimistic change is reverted (and
+    /// DataRefreshed fired again) and the method returns false so the UI can
+    /// surface an error. Auth-expired is handled like the sync paths.
+    public async Task<bool> SetMyResponseAsync(CalendarEvent ev, string status, CancellationToken ct = default)
+    {
+        if (EventActions.SelfAttendee(ev) is not { } self) return false;
+        if (ev.AccountEmail is not { Length: > 0 } email || ev.CalendarId is not { Length: > 0 } calId)
+            return false;
+        if (ResolveAccount(email) is not { } account) return false;
+
+        var previous = self.ResponseStatus;
+        if (previous == status) return true; // no-op
+
+        // Optimistic: mutate the live object the UI holds, then repaint. This
+        // runs on the caller (UI) thread before the first await. The mutation
+        // targets the same CalendarEvent instance Slice() hands the UI, so the
+        // repaint shows the new status instantly. A concurrent DoSync could
+        // replace this instance in the stream dictionary, dropping the
+        // optimistic write — RefreshAll() below reconciles to the canonical
+        // state regardless, so the worst case is a brief flicker, not stale UI.
+        self.ResponseStatus = status;
+        DataRefreshed?.Invoke([ev.Start.Year]);
+
+        try
+        {
+            var provider = _providers.Get(account);
+            await provider.SetMyResponseStatusAsync(
+                account, calId, ev.Id, ev.Attendees ?? [], ev.Rooms, status, ct);
+        }
+        catch (AccountAuthExpiredException ex)
+        {
+            self.ResponseStatus = previous;
+            DataRefreshed?.Invoke([ev.Start.Year]);
+            if (_authExpired.Add(account))
+            {
+                Log.Error("Rsvp", ex, $"auth expired for {account}");
+                AccountAuthExpired?.Invoke(account);
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            self.ResponseStatus = previous;
+            DataRefreshed?.Invoke([ev.Start.Year]);
+            Log.Error("Rsvp", ex, $"RSVP failed for {account} event={ev.Id}");
+            return false;
+        }
+
+        // Pull the canonical state (and the organizer's view of our RSVP) on the
+        // next incremental sync. Cheap when nothing else changed.
+        RefreshAll();
+        return true;
+    }
+
     /// Drops all in-memory state and on-disk cache. Use after adding or removing
     /// an account. Next Request() rebuilds from scratch with initial syncs.
     public void InvalidateAll()

@@ -42,6 +42,32 @@
                            TextTrimming="CharacterEllipsis"/>
             </StackPanel>
 
+            <!-- RSVP row: shown only when the user is an attendee on a writable
+                 calendar. Toggle buttons reflect the current responseStatus. -->
+            <StackPanel x:Name="RsvpStack"
+                        Spacing="4"
+                        Visibility="Collapsed">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <ToggleButton x:Name="RsvpYes"
+                                  Content="Да"
+                                  MinWidth="60"
+                                  Click="OnRsvpYesClick"/>
+                    <ToggleButton x:Name="RsvpNo"
+                                  Content="Нет"
+                                  MinWidth="60"
+                                  Click="OnRsvpNoClick"/>
+                    <ToggleButton x:Name="RsvpMaybe"
+                                  Content="Возможно"
+                                  MinWidth="80"
+                                  Click="OnRsvpMaybeClick"/>
+                </StackPanel>
+                <TextBlock x:Name="RsvpError"
+                           FontSize="12"
+                           Foreground="#C62828"
+                           Visibility="Collapsed"
+                           Text="Не удалось сохранить ответ"/>
+            </StackPanel>
+
             <ScrollViewer x:Name="DescriptionScroll"
                           MaxHeight="180"
                           VerticalScrollBarVisibility="Auto"

@@ -64,6 +64,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _events.FetchingChanged += UpdateFetching;
         _tasks.FetchingChanged += UpdateFetching;
 
+        // Wire the static bridge the event UI surfaces (details flyout, chip
+        // context menu) use to RSVP without a reference to this view model.
+        EventActions.CanRespond = _events.CanRespond;
+        EventActions.Respond = (ev, status) => _events.SetMyResponseAsync(ev, status);
+
         _calendarLists.RefreshAll();
         _ = PollLoopAsync(_pollCts.Token);
     }

@@ -80,6 +80,14 @@ public sealed class FakeCalendarProvider : ICalendarProvider
     public Task<List<TaskItem>> GetTasksAsync(AccountId id, CancellationToken ct = default) =>
         Task.FromResult(new List<TaskItem>());
 
+    // No-op: the fixture is the immutable source of truth, so an RSVP just
+    // "succeeds" without mutating anything. Lets tests exercise the UI path.
+    public Task SetMyResponseStatusAsync(
+        AccountId id, string calendarId, string eventId,
+        IReadOnlyList<EventAttendee> guests, IReadOnlyList<EventAttendee>? rooms,
+        string status, CancellationToken ct = default) =>
+        Task.CompletedTask;
+
     private static List<CalendarEvent> LoadFixtureEvents()
     {
         var path = Environment.GetEnvironmentVariable(FixtureEnv);

@@ -43,4 +43,13 @@ public interface ICalendarProvider
     Task<List<CalendarInfo>> GetCalendarsAsync(AccountId id, CancellationToken ct = default);
 
     Task<List<TaskItem>> GetTasksAsync(AccountId id, CancellationToken ct = default);
+
+    // Sets the signed-in user's RSVP (accepted/declined/tentative) on an event,
+    // sending the full guest + room attendee list back with the self entry's
+    // status changed. For a recurring series this targets the one expanded
+    // instance identified by eventId.
+    Task SetMyResponseStatusAsync(
+        AccountId id, string calendarId, string eventId,
+        IReadOnlyList<EventAttendee> guests, IReadOnlyList<EventAttendee>? rooms,
+        string status, CancellationToken ct = default);
 }
