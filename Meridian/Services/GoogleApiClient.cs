@@ -582,6 +582,13 @@ public sealed class GoogleApiClient(AccountId id)
     // into the typed AccountAuthExpiredException so the caches can short-circuit
     // sync for this account. Everything else falls through to the standard
     // HttpRequestException via EnsureSuccessStatusCode().
+    //
+    // Exception: a 403 whose reason is a rate-limit / quota signal
+    // (rateLimitExceeded, userRateLimitExceeded, quotaExceeded) is NOT an auth
+    // failure — the token is fine, we're just being throttled. Treating it as
+    // auth-expired wrongly killed the account and popped a "session expired"
+    // toast (seen when clicking RSVP repeatedly). Let those fall through to
+    // EnsureSuccessStatusCode so callers log + retry on the next tick instead.
     private async Task EnsureSuccessOrAuthExpiredAsync(HttpResponseMessage resp, CancellationToken ct)
     {
         if (resp.IsSuccessStatusCode) return;
@@ -591,6 +598,13 @@ public sealed class GoogleApiClient(AccountId id)
         {
             string body = "";
             try { body = await resp.Content.ReadAsStringAsync(ct); } catch { }
+
+            if (code == 403 && IsRateLimit(body))
+            {
+                resp.EnsureSuccessStatusCode(); // throws HttpRequestException (transient)
+                return; // unreachable; keeps the compiler happy
+            }
+
             throw new Meridian.Auth.AccountAuthExpiredException(id, $"api: HTTP {code} ({Trim(body)})");
         }
 
@@ -598,4 +612,14 @@ public sealed class GoogleApiClient(AccountId id)
 
         static string Trim(string s) => s.Length <= 200 ? s : s[..200];
     }
+
+    // True when a 403 body carries a rate-limit / quota reason rather than a real
+    // authorization failure. Google puts the machine-readable reason in
+    // error.errors[].reason; we match on substring to avoid pulling in a DTO just
+    // for this. authError / insufficientPermissions / forbidden are real auth
+    // failures and deliberately not matched here.
+    private static bool IsRateLimit(string body) =>
+        body.Contains("rateLimitExceeded", StringComparison.Ordinal)
+        || body.Contains("userRateLimitExceeded", StringComparison.Ordinal)
+        || body.Contains("quotaExceeded", StringComparison.Ordinal);
 }
