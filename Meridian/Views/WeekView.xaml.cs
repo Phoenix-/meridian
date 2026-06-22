@@ -20,6 +20,11 @@ public sealed partial class WeekView : Page, ICalendarView
     private DateTime _weekStart;
     private CalendarSnapshot? _lastSnapshot;
     private int? _lastContentHash;
+    // The week (Monday) we have already auto-scrolled to its focus time. A
+    // Rebuild triggered by navigation moves this to a new week and re-scrolls;
+    // a Rebuild triggered by a background content change (e.g. an RSVP repaint)
+    // hits the same week and leaves the user's scroll position alone.
+    private DateTime? _scrolledForWeek;
 
     private Line? _nowLine;
     private Line? _nowLineOverlay;
@@ -116,9 +121,13 @@ public sealed partial class WeekView : Page, ICalendarView
         return $"{monday.Day} {monday:MMMM yyyy} – {sunday.Day} {sunday:MMMM yyyy}";
     }
 
-    public void NavigatePrevious() { _date = _date.AddDays(-7); _lastContentHash = null; }
-    public void NavigateNext()     { _date = _date.AddDays(7);  _lastContentHash = null; }
-    public void NavigateToToday()  { _date = DateTime.Today;    _lastContentHash = null; }
+    // Clear _scrolledForWeek alongside the content hash so the next Rebuild
+    // re-scrolls to the focus time. Matters for "Today" when we are already on
+    // the current week (_weekStart unchanged) — without the reset the scroll
+    // guard would keep the user's position instead of jumping back to now.
+    public void NavigatePrevious() { _date = _date.AddDays(-7); _lastContentHash = null; _scrolledForWeek = null; }
+    public void NavigateNext()     { _date = _date.AddDays(7);  _lastContentHash = null; _scrolledForWeek = null; }
+    public void NavigateToToday()  { _date = DateTime.Today;    _lastContentHash = null; _scrolledForWeek = null; }
 
     public void ApplySnapshot(CalendarSnapshot snapshot)
     {
@@ -464,6 +473,15 @@ public sealed partial class WeekView : Page, ICalendarView
 
     private void ScrollToTime()
     {
+        // Only auto-scroll on the first build of a given week (or when navigation
+        // requested an explicit focus time). Subsequent rebuilds of the same week
+        // — content refreshes, an RSVP repaint — must preserve where the user
+        // scrolled to. Without this guard the view snaps back to "now"/09:00 on
+        // every background update.
+        if (_initialFocusTime is null && _scrolledForWeek == _weekStart)
+            return;
+        _scrolledForWeek = _weekStart;
+
         var sv = TimedScrollViewer;
 
         // Drop any handler armed by a previous Rebuild — otherwise stale handlers
