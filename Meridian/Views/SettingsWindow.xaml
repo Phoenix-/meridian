@@ -35,7 +35,7 @@
 
             <!-- Section content. One panel per nav item; toggled by Tag. -->
             <ScrollViewer Padding="24,16,24,24">
-                <StackPanel x:Name="NotificationsPanel" Spacing="20" MaxWidth="560"
+                <StackPanel x:Name="NotificationsPanel" Spacing="20"
                             HorizontalAlignment="Stretch">
                     <TextBlock Text="Уведомления" Style="{StaticResource SubtitleTextBlockStyle}"/>
 
@@ -52,6 +52,7 @@
                                        Text="Подсвечивать кнопку Meridian янтарным при срабатывании напоминания, если окно не в фокусе."/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                      MinWidth="0" OnContent="" OffContent=""
                                       IsOn="{x:Bind ViewModel.FlashTaskbarOnReminder, Mode=TwoWay}"/>
                     </Grid>
 
@@ -68,6 +69,7 @@
                                        Text="Показывать цветную точку на кнопке панели задач, пока идёт событие — в цвете календаря."/>
                         </StackPanel>
                         <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                      MinWidth="0" OnContent="" OffContent=""
                                       IsOn="{x:Bind ViewModel.ShowOngoingEventOverlay, Mode=TwoWay}"/>
                     </Grid>
                 </StackPanel>

@@ -286,43 +286,7 @@ public sealed partial class MainWindow : Window
     //
     // Brush definitions: WindowsAppSDK generic.xaml — WindowCaption* are StaticResource
     // aliases of SystemControl*Brush, which have proper Light/Dark ThemeDictionaries.
-    private void ApplyCaptionButtonColors()
-    {
-        var theme = (Content as FrameworkElement)?.ActualTheme ?? ElementTheme.Default;
-        var tb = AppWindow.TitleBar;
-
-        // Backdrop is acrylic — keep the bands transparent so it shows through.
-        tb.ButtonBackgroundColor         = Colors.Transparent;
-        tb.ButtonInactiveBackgroundColor = Colors.Transparent;
-
-        var fg         = ResolveThemeBrushColor("WindowCaptionForeground",         theme);
-        var fgInactive = ResolveThemeBrushColor("WindowCaptionForegroundDisabled", theme);
-        var hoverBg    = ResolveThemeBrushColor("WindowCaptionButtonBackgroundPointerOver", theme);
-        var pressedBg  = ResolveThemeBrushColor("WindowCaptionButtonBackgroundPressed",     theme);
-
-        tb.ButtonForegroundColor         = fg;
-        tb.ButtonHoverForegroundColor    = fg;
-        tb.ButtonPressedForegroundColor  = fg;
-        tb.ButtonInactiveForegroundColor = fgInactive;
-
-        tb.ButtonHoverBackgroundColor    = hoverBg;
-        tb.ButtonPressedBackgroundColor  = pressedBg;
-    }
-
-    // Application.Resources.ThemeDictionaries holds Light/Dark/HighContrast variants
-    // that ThemeResource lookup would pick from. Code-behind lookup via Resources[key]
-    // does not follow Window.ActualTheme, so resolve the dictionary explicitly.
-    private static Color ResolveThemeBrushColor(string key, ElementTheme theme)
-    {
-        var dicts = Application.Current.Resources.ThemeDictionaries;
-        var themeKey = theme == ElementTheme.Light ? "Light" : "Default"; // Default == Dark in WinUI
-        if (dicts.TryGetValue(themeKey, out var d) && d is ResourceDictionary rd && rd[key] is SolidColorBrush b)
-            return b.Color;
-        // Fallback to whatever Resources[key] resolves to — at worst, the Default theme.
-        if (Application.Current.Resources[key] is SolidColorBrush fallback)
-            return fallback.Color;
-        return theme == ElementTheme.Light ? Colors.Black : Colors.White;
-    }
+    private void ApplyCaptionButtonColors() => TitleBarTheming.ApplyCaptionButtonColors(this);
 
     private void OnTitleBarLoaded(object sender, RoutedEventArgs e) => UpdateTitleBarPassthrough();
     private void OnTitleBarSizeChanged(object sender, SizeChangedEventArgs e) => UpdateTitleBarPassthrough();
@@ -647,6 +611,9 @@ public sealed partial class MainWindow : Window
         // already been torn down — accessing it then throws COMException.
         _closed = true;
         AppWindow.Changed -= OnAppWindowChanged;
+        // Don't let the settings window outlive the main one — otherwise the
+        // process stays alive on an orphaned window after the user "quit".
+        SettingsWindow.CloseIfOpen();
         ViewModel.Dispose();
     }
 

@@ -27,6 +27,12 @@ public sealed partial class SettingsWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
+        // Caption-button glyphs aren't auto-themed under ExtendsContentIntoTitleBar;
+        // theme them now and on every OS light/dark switch (shared with MainWindow).
+        TitleBarTheming.ApplyCaptionButtonColors(this);
+        if (Content is FrameworkElement fe)
+            fe.ActualThemeChanged += (_, _) => TitleBarTheming.ApplyCaptionButtonColors(this);
+
         // A settings dialog doesn't need to be calendar-sized. Set a floor
         // first so the initial Resize isn't clamped below it, then size to a
         // comfortable default. PreferredMinimum* (WinAppSDK 1.7+) stops the
@@ -34,10 +40,11 @@ public sealed partial class SettingsWindow : Window
         // into a one-letter-per-line ribbon. Values are in DIPs.
         if (AppWindow.Presenter is OverlappedPresenter presenter)
         {
-            // Floor wide enough that the 200-DIP nav pane plus the content
-            // column (text MinWidth 180 + toggle + paddings) both fit — below
-            // this the content gets squeezed off-screen behind the pane.
-            presenter.PreferredMinimumWidth = 540;
+            // Floor wide enough that the 200-DIP nav pane plus the content row
+            // both fit: text column MinWidth 180 + its 16 right-margin + the
+            // (label-less, MinWidth=0) ToggleSwitch ~44 + the ScrollViewer's
+            // 24+24 padding ≈ 488. Round up to 500 for a little breathing room.
+            presenter.PreferredMinimumWidth = 500;
             presenter.PreferredMinimumHeight = 400;
         }
         AppWindow.Resize(new Windows.Graphics.SizeInt32(720, 560));
@@ -57,6 +64,13 @@ public sealed partial class SettingsWindow : Window
         _current ??= new SettingsWindow();
         _current.Activate();
     }
+
+    // Closes the settings window if it's open. Called when the main window
+    // closes so settings can't outlive it (the two are independent top-level
+    // windows; without this, the process would stay alive on a now-orphaned
+    // settings window after the user "quit" via the main window). Close()
+    // triggers our own Closed handler, which clears _current and disposes the VM.
+    public static void CloseIfOpen() => _current?.Close();
 
     private void OnNavSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
     {
