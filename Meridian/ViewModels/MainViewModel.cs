@@ -61,6 +61,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _reminders = new ReminderScheduler(_events, dispatcher);
         _ongoing   = new OngoingEventIndicator(_events, accounts, dispatcher);
 
+        // Apply settings toggles live. Both flags are read on each use
+        // (flash on the next reminder, overlay on the next tick), so the only
+        // thing left to do is nudge the affected surface so the change shows
+        // immediately instead of at the next natural trigger.
+        SettingsStore.Changed += OnSettingChanged;
+
         _events.FetchingChanged += UpdateFetching;
         _tasks.FetchingChanged += UpdateFetching;
 
@@ -156,8 +162,31 @@ public partial class MainViewModel : ObservableObject, IDisposable
         catch (OperationCanceledException) { }
     }
 
+    // Reacts to a settings toggle so it takes effect without waiting for the
+    // next reminder/tick. Fires on whatever thread mutated the store; hop to
+    // the UI dispatcher before touching the taskbar surfaces.
+    private void OnSettingChanged(string name)
+    {
+        _dispatcher.TryEnqueue(() =>
+        {
+            switch (name)
+            {
+                case nameof(SettingsStore.FlashTaskbarOnReminder):
+                    // Turning it off should clear any flash that's currently
+                    // asserted, not just suppress the next one.
+                    if (!AppSettings.FlashTaskbarOnReminder) TaskbarFlasher.Stop();
+                    break;
+                case nameof(SettingsStore.ShowOngoingEventOverlay):
+                    // Apply() paints or clears the overlay based on the flag.
+                    _ongoing.Refresh();
+                    break;
+            }
+        });
+    }
+
     public void Dispose()
     {
+        SettingsStore.Changed -= OnSettingChanged;
         _pollCts.Cancel();
         _pollCts.Dispose();
     }

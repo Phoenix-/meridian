@@ -650,6 +650,11 @@ public sealed partial class MainWindow : Window
         ViewModel.Dispose();
     }
 
+    private void OnSettingsClick(object sender, RoutedEventArgs e)
+    {
+        SettingsWindow.ShowOrActivate();
+    }
+
     private async void OnAddAccountClick(object sender, RoutedEventArgs e)
     {
         AccountsFlyout.Hide();

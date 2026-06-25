@@ -64,15 +64,11 @@ internal sealed class OngoingEventIndicator
 
     private void Apply()
     {
-        // Const-typed gate (see AppSettings.FlashTaskbarOnReminder for the
-        // same pattern) — suppress the unreachable-code warning locally.
-#pragma warning disable CS0162
         if (!AppSettings.ShowOngoingEventOverlay)
         {
             SetColor(null);
             return;
         }
-#pragma warning restore CS0162
 
         try
         {

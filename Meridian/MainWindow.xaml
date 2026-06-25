@@ -58,6 +58,8 @@
                 <Button x:Name="BtnTestScheduled" Content="&#xE823;" FontFamily="Segoe MDL2 Assets"
                         Click="OnTestScheduledClick" Visibility="Collapsed"
                         ToolTipService.ToolTip="Тестовый отложенный тост через 30 секунд (AddToSchedule)"/>
+                <Button x:Name="BtnSettings" Content="&#xE713;" FontFamily="Segoe MDL2 Assets"
+                        Click="OnSettingsClick" ToolTipService.ToolTip="Настройки"/>
                 <Button x:Name="BtnAccounts"
                         ToolTipService.ToolTip="Аккаунты">
                     <Grid>

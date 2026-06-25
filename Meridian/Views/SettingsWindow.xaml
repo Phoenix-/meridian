@@ -1,0 +1,77 @@
+<Window
+    x:Class="Meridian.Views.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:Meridian.ViewModels"
+    Title="Настройки — Meridian">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Custom title bar drag region -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="40" Background="Transparent">
+            <TextBlock Text="Настройки" VerticalAlignment="Center" Margin="16,0,0,0"
+                       Style="{StaticResource CaptionTextBlockStyle}"/>
+        </Grid>
+
+        <NavigationView Grid.Row="1"
+                        x:Name="Nav"
+                        PaneDisplayMode="Left"
+                        OpenPaneLength="200"
+                        IsBackButtonVisible="Collapsed"
+                        IsPaneToggleButtonVisible="False"
+                        IsSettingsVisible="False"
+                        SelectionChanged="OnNavSelectionChanged">
+            <NavigationView.MenuItems>
+                <NavigationViewItem Content="Уведомления" Tag="notifications" IsSelected="True">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEA8F;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <!-- Section content. One panel per nav item; toggled by Tag. -->
+            <ScrollViewer Padding="24,16,24,24">
+                <StackPanel x:Name="NotificationsPanel" Spacing="20" MaxWidth="560"
+                            HorizontalAlignment="Stretch">
+                    <TextBlock Text="Уведомления" Style="{StaticResource SubtitleTextBlockStyle}"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MinWidth="180"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                            <TextBlock Text="Мигание кнопки на панели задач" TextWrapping="Wrap"/>
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="Подсвечивать кнопку Meridian янтарным при срабатывании напоминания, если окно не в фокусе."/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                      IsOn="{x:Bind ViewModel.FlashTaskbarOnReminder, Mode=TwoWay}"/>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MinWidth="180"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                            <TextBlock Text="Индикатор текущего события" TextWrapping="Wrap"/>
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="Показывать цветную точку на кнопке панели задач, пока идёт событие — в цвете календаря."/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                      IsOn="{x:Bind ViewModel.ShowOngoingEventOverlay, Mode=TwoWay}"/>
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </NavigationView>
+    </Grid>
+</Window>

@@ -18,12 +18,7 @@ internal static class TaskbarFlasher
 {
     public static void Start()
     {
-        // Const-typed gate produces an unreachable-code warning today; the
-        // gate is here to document the wire-up point for when AppSettings
-        // gains a real backing store. Suppress locally, not project-wide.
-#pragma warning disable CS0162
         if (!AppSettings.FlashTaskbarOnReminder) return;
-#pragma warning restore CS0162
 
         var hwnd = TryGetHwnd();
         if (hwnd == 0) return;
