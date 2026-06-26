@@ -223,9 +223,21 @@ public sealed partial class EventDetailsFlyout : UserControl
 
     // ── Meet / Guests / Rooms blocks ───────────────────────────────────────────
 
-    // Threshold above which the guest list is replaced by a "too many to show"
-    // note (mirrors Google Calendar Web behaviour on large meetings).
+    // At or below this count the guest list is drawn as full rows (avatar +
+    // name + status). Above it we switch to a compact avatar strip.
     private const int GuestListMaxShown = 5;
+
+    // Avatar-strip geometry. Avatars spread across the available width with a gap
+    // when they fit; when they'd overflow they fan into an overlapping "stack"
+    // (like a hand of cards), tightening only as much as needed. Past
+    // GuestStripMax we render the first GuestStripMax and a trailing "+N" chip.
+    private const int GuestStripMax = 16;
+    private const double AvatarSize = 28;
+    // Clear air between adjacent ring edges when there's room to spread. Counted
+    // from ring edge to ring edge, so the per-avatar step adds the overhang.
+    private const double AvatarGap = 4;
+    private const double AvatarOverlap = 16;     // visible sliver when stacked
+    private const double RingThickness = 2;      // colored outline around avatar
 
     private FrameworkElement BuildMeetBlock(string joinUrl)
     {
@@ -321,19 +333,272 @@ public sealed partial class EventDetailsFlyout : UserControl
 
         if (ordered.Count > GuestListMaxShown)
         {
-            parent.Children.Add(new TextBlock
-            {
-                Text = "Слишком много участников, чтобы показать список",
-                FontSize = 12,
-                Margin = new Thickness(0, 2, 0, 0),
-                Foreground = (Brush)Application.Current.Resources["SystemControlForegroundBaseMediumBrush"],
-                TextWrapping = TextWrapping.Wrap,
-            });
+            parent.Children.Add(BuildGuestsAvatarStrip(ordered));
             return;
         }
 
         foreach (var a in ordered)
             parent.Children.Add(BuildAttendeeRow(a));
+    }
+
+    // Compact avatar strip for large guest lists. Up to GuestStripSpread avatars
+    // sit side by side; beyond that they overlap into a stack. Past GuestStripMax
+    // the overflow collapses into a trailing "+N" chip. Each avatar carries a
+    // tooltip (name + RSVP status) and pops to the front of the z-order on hover.
+    private FrameworkElement BuildGuestsAvatarStrip(IReadOnlyList<EventAttendee> guests)
+    {
+        var shown = guests.Count > GuestStripMax
+            ? guests.Take(GuestStripMax).ToList()
+            : guests;
+        int overflow = guests.Count - shown.Count;
+
+        var canvas = new Canvas
+        {
+            // Extra height for the ring that overhangs the bubble top and bottom.
+            Height = AvatarSize + RingThickness * 2,
+            Margin = new Thickness(0, 2, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            // Background brush makes the whole strip hit-testable so pointer
+            // moves between overlapping avatars stay responsive.
+            Background = new SolidColorBrush(Colors.Transparent),
+        };
+
+        // The step between avatars depends on how much width we actually get,
+        // which isn't known until layout. Lay out once the canvas has a real
+        // width, and re-lay out if it changes (DPI, resize).
+        void Layout()
+        {
+            double available = canvas.ActualWidth;
+            if (available <= 0) return;
+            LayoutAvatarStrip(canvas, shown, overflow, guests, available);
+        }
+
+        canvas.SizeChanged += (_, _) => Layout();
+        canvas.Loaded += (_, _) => Layout();
+        return canvas;
+    }
+
+    // Positions the avatars (and optional overflow chip) within the given width.
+    // Avatars spread out with a gap when they fit; once they'd run past the edge
+    // the step tightens into an overlap — only as much as needed — down to a
+    // minimum sliver. This is what makes the stack "stretch" to fill the strip
+    // instead of clumping at a fixed overlap.
+    private void LayoutAvatarStrip(
+        Canvas canvas,
+        IReadOnlyList<EventAttendee> shown,
+        int overflow,
+        IReadOnlyList<EventAttendee> guests,
+        double available)
+    {
+        canvas.Children.Clear();
+
+        // Slots to place: the avatars plus, if present, the "+N" chip.
+        int slots = shown.Count + (overflow > 0 ? 1 : 0);
+
+        // Width the avatars occupy, leaving room for the ring overhang on both
+        // ends. The last avatar contributes a full AvatarSize; the others only a
+        // step. So: x = RingThickness + step*(slots-1) + AvatarSize + RingThickness.
+        double usable = available - AvatarSize - RingThickness * 2;
+
+        // Ideal step puts AvatarGap of clear air between ring edges: the bubble
+        // plus the ring overhang on both this avatar's right and the next one's
+        // left, plus the gap itself.
+        double idealStep = AvatarSize + RingThickness * 2 + AvatarGap;  // no overlap
+        double minStep = AvatarSize - AvatarOverlap;                    // tightest stack
+        double step = slots <= 1 ? idealStep : usable / (slots - 1);
+        step = Math.Clamp(step, minStep, idealStep);
+
+        double x = RingThickness;
+        for (int i = 0; i < shown.Count; i++)
+        {
+            var avatar = BuildStripAvatar(shown[i]);
+            Canvas.SetLeft(avatar, x);
+            Canvas.SetTop(avatar, RingThickness);
+            // Leftmost on top so the stack fans like a hand of cards; hover
+            // overrides this. Base z-indexes leave headroom above the count.
+            Canvas.SetZIndex(avatar, shown.Count - i);
+            canvas.Children.Add(avatar);
+            x += step;
+        }
+
+        if (overflow > 0)
+        {
+            var more = BuildOverflowChip(overflow, guests.Skip(shown.Count));
+            Canvas.SetLeft(more, x);
+            Canvas.SetTop(more, RingThickness);
+            Canvas.SetZIndex(more, 0);
+            canvas.Children.Add(more);
+        }
+    }
+
+    // A single avatar in the compact strip: the colored/photo bubble plus a
+    // small status dot, a hover tooltip, and pointer handlers that raise it
+    // above its neighbours while the cursor is over it.
+    private FrameworkElement BuildStripAvatar(EventAttendee a)
+    {
+        var avatar = BuildAvatar(a, out var photoTarget);
+        ResolveDirectoryPhoto(a, photoTarget);
+
+        // Wrap so we can overlay a colored ring and the status dot without
+        // disturbing the avatar's own 28×28 layout. The host is sized to the
+        // bubble; the ring is drawn just outside it via a negative margin so it
+        // doesn't eat into the face.
+        var host = new Grid { Width = AvatarSize, Height = AvatarSize };
+
+        // Colored ring around the avatar — a per-person hue (same hash as the
+        // bubble fill) so each face gets its own outline, and stacked avatars
+        // stay visually separated where they overlap.
+        host.Children.Add(new Ellipse
+        {
+            Width = AvatarSize + RingThickness * 2,
+            Height = AvatarSize + RingThickness * 2,
+            Margin = new Thickness(-RingThickness),
+            Stroke = new SolidColorBrush(ColorFromEmail(a.Email)),
+            StrokeThickness = RingThickness,
+            Fill = new SolidColorBrush(Colors.Transparent),
+        });
+
+        host.Children.Add(avatar);
+
+        if (BuildStatusDot(a.ResponseStatus) is { } dot)
+            host.Children.Add(dot);
+
+        var tip = new ToolTip { Content = BuildAvatarTooltipText(a) };
+        ToolTipService.SetToolTip(host, tip);
+        // Patch the tooltip with the directory-resolved name once it arrives.
+        ResolveDirectoryTooltip(a, tip);
+
+        host.PointerEntered += (_, _) =>
+        {
+            _stripHoverPrev = Canvas.GetZIndex(host);
+            Canvas.SetZIndex(host, 1000);
+        };
+        host.PointerExited += (_, _) => Canvas.SetZIndex(host, _stripHoverPrev);
+
+        return host;
+    }
+
+    private int _stripHoverPrev;
+
+    private FrameworkElement BuildOverflowChip(int count, IEnumerable<EventAttendee> rest)
+    {
+        var grid = new Grid { Width = AvatarSize, Height = AvatarSize };
+        grid.Children.Add(new Ellipse
+        {
+            Width = AvatarSize,
+            Height = AvatarSize,
+            Fill = (Brush)Application.Current.Resources["SystemControlBackgroundBaseLowBrush"],
+        });
+        grid.Children.Add(new TextBlock
+        {
+            Text = $"+{count}",
+            FontSize = 11,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["SystemControlForegroundBaseHighBrush"],
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var names = rest
+            .Select(FormatAttendeeName)
+            .Take(20)
+            .ToList();
+        var content = string.Join("\n", names);
+        if (count > names.Count) content += $"\n… и ещё {count - names.Count}";
+        ToolTipService.SetToolTip(grid, new ToolTip { Content = content });
+
+        return grid;
+    }
+
+    // Small colored dot in the avatar's bottom-right corner reflecting the RSVP
+    // response. "Needs action" gets no dot to keep undecided guests quiet.
+    private static FrameworkElement? BuildStatusDot(string? status)
+    {
+        var color = status switch
+        {
+            "accepted"  => Color.FromArgb(255, 0x2E, 0x7D, 0x32),  // green
+            "declined"  => Color.FromArgb(255, 0xC6, 0x28, 0x28),  // red
+            "tentative" => Color.FromArgb(255, 0xEF, 0x6C, 0x00),  // orange
+            _           => (Color?)null,
+        };
+        if (color is not { } c) return null;
+
+        const double dot = 10;
+        return new Border
+        {
+            Width = dot,
+            Height = dot,
+            CornerRadius = new CornerRadius(dot / 2),
+            Background = new SolidColorBrush(c),
+            // White ring so the dot reads against any avatar color.
+            BorderThickness = new Thickness(1.5),
+            BorderBrush = new SolidColorBrush(Colors.White),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+        };
+    }
+
+    private static string BuildAvatarTooltipText(EventAttendee a)
+    {
+        var name = FormatAttendeeName(a);
+        var status = StatusWord(a.ResponseStatus);
+        var extras = new List<string>();
+        if (a.IsOrganizer) extras.Add("организатор");
+        if (status is { Length: > 0 }) extras.Add(status);
+        return extras.Count > 0 ? $"{name} — {string.Join(" · ", extras)}" : name;
+    }
+
+    private static string StatusWord(string? status) => status switch
+    {
+        "accepted"  => "да",
+        "declined"  => "нет",
+        "tentative" => "возможно",
+        "needsAction" => "не ответил(а)",
+        _ => "",
+    };
+
+    // Patches an avatar's tooltip with the directory-resolved display name once
+    // it's available, mirroring ResolveDirectoryName for the full rows. Cache
+    // hits apply synchronously; misses resolve in the background.
+    private void ResolveDirectoryTooltip(EventAttendee a, ToolTip tip)
+    {
+        if (_event?.AccountEmail is not { Length: > 0 } accountEmail) return;
+        if (string.IsNullOrWhiteSpace(a.Email)) return;
+
+        var account = new AccountId(GoogleOAuthClient.ProviderName, accountEmail);
+
+        if (DirectoryCache.TryGet(account, a.Email, out var cached))
+        {
+            ApplyTooltipName(a, tip, cached.DisplayName);
+            return;
+        }
+
+        _ = ResolveTooltipInBackgroundAsync(account, a, tip);
+    }
+
+    private async Task ResolveTooltipInBackgroundAsync(AccountId account, EventAttendee a, ToolTip tip)
+    {
+        DirectoryPerson? person;
+        try { person = await DirectoryCache.ResolveAsync(account, a.Email); }
+        catch (AccountAuthExpiredException) { return; }
+        catch { return; }
+
+        if (person?.DisplayName is not { Length: > 0 } name) return;
+
+        DispatcherQueue.TryEnqueue(() => ApplyTooltipName(a, tip, name));
+    }
+
+    private static void ApplyTooltipName(EventAttendee a, ToolTip tip, string? resolved)
+    {
+        if (string.IsNullOrWhiteSpace(resolved)) return;
+
+        var status = StatusWord(a.ResponseStatus);
+        var extras = new List<string>();
+        if (a.IsOrganizer) extras.Add("организатор");
+        if (status is { Length: > 0 }) extras.Add(status);
+
+        var label = DecorateName(a, resolved!);
+        tip.Content = extras.Count > 0 ? $"{label} — {string.Join(" · ", extras)}" : label;
     }
 
     private static FrameworkElement BuildGuestsHeader(IReadOnlyList<EventAttendee> guests)
