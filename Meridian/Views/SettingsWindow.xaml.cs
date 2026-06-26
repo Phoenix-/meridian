@@ -2,6 +2,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Meridian.Services;
 using Meridian.ViewModels;
 
 namespace Meridian.Views;
@@ -26,6 +27,14 @@ public sealed partial class SettingsWindow : Window
         SystemBackdrop = new DesktopAcrylicBackdrop();
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
+
+        // Packaged (MSIX) builds register their notification identity through the
+        // package manifest, so the "register in notifications" toggle is a no-op
+        // there (ToastSetup.EnsureRegistered short-circuits for IsPackaged). Hide
+        // the row entirely — it only matters for unpackaged dev builds that may
+        // want to bow out and leave the field to the installed app.
+        if (AppPaths.IsPackaged)
+            RegisterForNotificationsRow.Visibility = Visibility.Collapsed;
 
         // Caption-button glyphs aren't auto-themed under ExtendsContentIntoTitleBar;
         // theme them now and on every OS light/dark switch (shared with MainWindow).

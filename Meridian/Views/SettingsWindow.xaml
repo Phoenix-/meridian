@@ -96,7 +96,11 @@
                                       IsOn="{x:Bind ViewModel.SuppressAllPopups, Mode=TwoWay}"/>
                     </Grid>
 
-                    <Grid>
+                    <!-- Only meaningful for unpackaged builds: the MSIX package owns
+                         its notification identity (AUMID/activator come from the
+                         manifest), so EnsureRegistered() no-ops there. Collapsed in
+                         packaged builds from the code-behind. -->
+                    <Grid x:Name="RegisterForNotificationsRow">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" MinWidth="180"/>
                             <ColumnDefinition Width="Auto"/>
