@@ -61,6 +61,27 @@ internal static class SettingsStore
                    d => d.ShowOngoingEventOverlay, (d, v) => d.ShowOngoingEventOverlay = v);
     }
 
+    public static bool DebugFeaturesEnabled
+    {
+        get => Data.DebugFeaturesEnabled;
+        set => Set(value, nameof(DebugFeaturesEnabled),
+                   d => d.DebugFeaturesEnabled, (d, v) => d.DebugFeaturesEnabled = v);
+    }
+
+    public static bool SuppressAllPopups
+    {
+        get => Data.SuppressAllPopups;
+        set => Set(value, nameof(SuppressAllPopups),
+                   d => d.SuppressAllPopups, (d, v) => d.SuppressAllPopups = v);
+    }
+
+    public static bool RegisterForNotifications
+    {
+        get => Data.RegisterForNotifications;
+        set => Set(value, nameof(RegisterForNotifications),
+                   d => d.RegisterForNotifications, (d, v) => d.RegisterForNotifications = v);
+    }
+
     // Reads/writes one field on the in-memory copy via strongly-typed
     // accessors — no reflection, so nothing here depends on metadata that
     // trimming/NativeAOT might drop. Persists only on an actual change, then

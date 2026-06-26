@@ -79,8 +79,13 @@ public sealed partial class SettingsWindow : Window
         var tag = (args.SelectedItem as NavigationViewItem)?.Tag as string;
         switch (tag)
         {
+            case "developer":
+                NotificationsPanel.Visibility = Visibility.Collapsed;
+                DeveloperPanel.Visibility = Visibility.Visible;
+                break;
             case "notifications":
             default:
+                DeveloperPanel.Visibility = Visibility.Collapsed;
                 NotificationsPanel.Visibility = Visibility.Visible;
                 break;
         }

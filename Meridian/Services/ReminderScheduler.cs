@@ -128,6 +128,15 @@ internal sealed class ReminderScheduler
             // MissedWindow.
             var events = _events.SnapshotRange(now - MissedWindow, horizon);
 
+            // Popups muted: don't schedule anything new, and drain whatever we
+            // already queued so the OS won't deliver it from a closed process.
+            // Returning here also skips the missed-summary Show() path below.
+            if (AppSettings.SuppressAllPopups)
+            {
+                ToastSetup.ClearAllScheduled();
+                return;
+            }
+
             // ── Read actual set from WNP (needed before classifying past
             //    fire-times: "WNP has it queued" → leave alone; "WNP doesn't"
             //    → it's missed). ──────────────────────────────────────────────

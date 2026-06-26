@@ -30,7 +30,8 @@ internal static class ToastTester
             try
             {
                 await Task.Delay(delay);
-                var notifier = ToastNotificationManager.CreateToastNotifier(ToastSetup.ResolvedAumid);
+                var notifier = ToastSetup.TryCreateNotifier();
+                if (notifier is null) { Log.Write("Toast", "test/show: popups muted, skipped"); return; }
                 notifier.Show(new ToastNotification(BuildXml("[show] Meridian test")));
                 Log.Write("Toast", "test/show: Show() returned");
                 App.MainWindow?.DispatcherQueue.TryEnqueue(TaskbarFlasher.Start);
@@ -49,7 +50,8 @@ internal static class ToastTester
 
         try
         {
-            var notifier = ToastNotificationManager.CreateToastNotifier(ToastSetup.ResolvedAumid);
+            var notifier = ToastSetup.TryCreateNotifier();
+            if (notifier is null) { Log.Write("Toast", "test/sched: popups muted, skipped"); return; }
             var toast = new ScheduledToastNotification(
                 BuildXml("[sched] Meridian test"), new DateTimeOffset(fireAt))
             {

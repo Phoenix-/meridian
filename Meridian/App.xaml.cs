@@ -28,7 +28,10 @@ public partial class App : Application
         // system-wide registrations from a test process.
         // Skip when packaged too: the package owns identity (EnsureRegistered
         // still sets ResolvedAumid to the package AUMID and returns early).
-        if (!AppPaths.IsIsolated)
+        // The user can opt out of registering with the Windows notification
+        // platform entirely (e.g. a debug build deferring to the installed
+        // Nightly so they don't both register and double-notify).
+        if (!AppPaths.IsIsolated && AppSettings.RegisterForNotifications)
             ToastSetup.EnsureRegistered();
 
         var providers = new ProviderRegistry();

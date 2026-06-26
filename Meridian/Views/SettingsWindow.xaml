@@ -31,10 +31,16 @@
                         <FontIcon Glyph="&#xEA8F;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="Разработчик" Tag="developer">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEBE8;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
 
             <!-- Section content. One panel per nav item; toggled by Tag. -->
             <ScrollViewer Padding="24,16,24,24">
+              <Grid>
                 <StackPanel x:Name="NotificationsPanel" Spacing="20"
                             HorizontalAlignment="Stretch">
                     <TextBlock Text="Уведомления" Style="{StaticResource SubtitleTextBlockStyle}"/>
@@ -72,7 +78,65 @@
                                       MinWidth="0" OnContent="" OffContent=""
                                       IsOn="{x:Bind ViewModel.ShowOngoingEventOverlay, Mode=TwoWay}"/>
                     </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MinWidth="180"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                            <TextBlock Text="Отключить все уведомления" TextWrapping="Wrap"/>
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="Полностью заглушить все всплывающие уведомления — ни одно не покажется и не будет запланировано. Уже запланированные снимаются. Полезно, чтобы не ловить дубли от боевой версии при разработке."/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                      MinWidth="0" OnContent="" OffContent=""
+                                      IsOn="{x:Bind ViewModel.SuppressAllPopups, Mode=TwoWay}"/>
+                    </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MinWidth="180"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                            <TextBlock Text="Регистрировать приложение в уведомлениях" TextWrapping="Wrap"/>
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="Регистрировать Meridian в системе уведомлений Windows (ярлык, AUMID, активатор). При выключении регистрация удаляется и приложение перестаёт фигурировать в «Параметры → Уведомления». Оставьте включённым на основной установке."/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                      MinWidth="0" OnContent="" OffContent=""
+                                      IsOn="{x:Bind ViewModel.RegisterForNotifications, Mode=TwoWay}"/>
+                    </Grid>
                 </StackPanel>
+
+                <StackPanel x:Name="DeveloperPanel" Spacing="20"
+                            Visibility="Collapsed"
+                            HorizontalAlignment="Stretch">
+                    <TextBlock Text="Разработчик" Style="{StaticResource SubtitleTextBlockStyle}"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" MinWidth="180"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,16,0">
+                            <TextBlock Text="Включить отладочный функционал" TextWrapping="Wrap"/>
+                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       Text="Показывать диагностические кнопки (тестовые уведомления) в главном окне. Раньше включалось файлом diag.enabled — он по-прежнему работает как запасной вариант."/>
+                        </StackPanel>
+                        <ToggleSwitch Grid.Column="1" VerticalAlignment="Center"
+                                      MinWidth="0" OnContent="" OffContent=""
+                                      IsOn="{x:Bind ViewModel.DebugFeaturesEnabled, Mode=TwoWay}"/>
+                    </Grid>
+                </StackPanel>
+              </Grid>
             </ScrollViewer>
         </NavigationView>
     </Grid>

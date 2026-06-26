@@ -42,6 +42,39 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         }
     }
 
+    public bool SuppressAllPopups
+    {
+        get => SettingsStore.SuppressAllPopups;
+        set
+        {
+            if (SettingsStore.SuppressAllPopups == value) return;
+            SettingsStore.SuppressAllPopups = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool RegisterForNotifications
+    {
+        get => SettingsStore.RegisterForNotifications;
+        set
+        {
+            if (SettingsStore.RegisterForNotifications == value) return;
+            SettingsStore.RegisterForNotifications = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool DebugFeaturesEnabled
+    {
+        get => SettingsStore.DebugFeaturesEnabled;
+        set
+        {
+            if (SettingsStore.DebugFeaturesEnabled == value) return;
+            SettingsStore.DebugFeaturesEnabled = value;
+            OnPropertyChanged();
+        }
+    }
+
     // Re-raise as a property change so the bound ToggleSwitch refreshes. The
     // store's property name matches ours 1:1, so forward it verbatim; a value
     // we wrote ourselves just re-raises the same property harmlessly.

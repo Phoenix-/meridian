@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using Meridian.Diagnostics;
+using Windows.UI.Notifications;
 
 namespace Meridian.Services;
 
@@ -111,6 +112,99 @@ internal static partial class ToastSetup
         {
             // Toasts are non-critical — never break startup over them.
             Log.Error("Toast", ex, "EnsureRegistered");
+        }
+    }
+
+    // The group prefix every Meridian-authored toast carries (reminders
+    // "mrd-<hash>", missed "mrd-missed", auth "mrd-auth", tester "mrd-tester").
+    // Lets a blanket cleanup target only our entries in the shared WNP queue.
+    private const string OurGroupPrefix = "mrd-";
+
+    // Returns a notifier for showing/scheduling a toast — unless the user has
+    // muted all popups, in which case null tells the caller to drop it. This is
+    // the single chokepoint every Show()/AddToSchedule() path goes through, so
+    // gating here mutes the immediate and the scheduled-into-the-future paths
+    // alike (the latter matters: a scheduled toast would otherwise fire from the
+    // OS queue even with our process closed). Callers already tolerate a failed
+    // notifier (the create call can throw), so a null is a natural no-op.
+    public static ToastNotifier? TryCreateNotifier()
+    {
+        if (AppSettings.SuppressAllPopups) return null;
+        return ToastNotificationManager.CreateToastNotifier(ResolvedAumid);
+    }
+
+    // Removes every Meridian-authored toast still sitting in the WNP schedule.
+    // Used when popups are muted or when the app de-registers from notifications
+    // — without this, toasts we already queued "into the future" keep firing
+    // from the OS even though the app no longer wants them. Best-effort; toast
+    // plumbing must never throw into a settings toggle.
+    public static void ClearAllScheduled()
+    {
+        try
+        {
+            var notifier = ToastNotificationManager.CreateToastNotifier(ResolvedAumid);
+            foreach (var st in notifier.GetScheduledToastNotifications())
+            {
+                if (st.Group is not null && st.Group.StartsWith(OurGroupPrefix, StringComparison.Ordinal))
+                    notifier.RemoveFromSchedule(st);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Toast", ex, "ClearAllScheduled");
+        }
+    }
+
+    // Tears down everything EnsureRegistered wrote, so the app can fully bow out
+    // of the Windows notification system (e.g. a debug build deferring to the
+    // installed Nightly). Removes:
+    //   * HKCU\Software\Classes\AppUserModelId\Meridian.App           (AUMID block)
+    //   * HKCU\Software\Classes\CLSID\{activator}                     (CLSID + LocalServer32)
+    //   * Start Menu\Meridian.lnk                                     (+ SHChangeNotify)
+    //   * %APPDATA%\Meridian\toast-setup.version                     (schema stamp)
+    //   * every queued mrd-* scheduled toast
+    // Packaged builds own their identity via the package manifest, so we only
+    // clear the queue there and leave the registry/.lnk alone (they aren't ours
+    // to touch — the OS wrote them from package identity).
+    public static void Unregister()
+    {
+        ClearAllScheduled();
+
+        if (AppPaths.IsPackaged)
+        {
+            Log.Write("Toast", "unregister: packaged — cleared queue only");
+            return;
+        }
+
+        try
+        {
+            Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(
+                $@"Software\Classes\AppUserModelId\{PreferredAumid}", throwOnMissingSubKey: false);
+
+            Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(
+                $@"Software\Classes\CLSID\{{{ToastActivatorIds.ClsidString}}}", throwOnMissingSubKey: false);
+
+            var shortcutPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.Programs), ShortcutFileName);
+            if (File.Exists(shortcutPath))
+            {
+                File.Delete(shortcutPath);
+                // SHCNE_DELETE = 0x4; SHCNF_PATH = 0x1 — tell the shell the .lnk
+                // is gone so it drops the AUMID from Settings → Notifications.
+                var pathPtr = Marshal.StringToCoTaskMemUni(shortcutPath);
+                try { SHChangeNotify(0x4, 0x1, pathPtr, IntPtr.Zero); }
+                finally { Marshal.FreeCoTaskMem(pathPtr); }
+            }
+
+            if (File.Exists(VersionStampPath)) File.Delete(VersionStampPath);
+
+            // ResolvedAumid is left at whatever it was; it's harmless once nothing
+            // schedules toasts, and a fresh EnsureRegistered will recompute it.
+            Log.Write("Toast", "unregister: removed AUMID block, CLSID, shortcut, stamp");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Toast", ex, "Unregister");
         }
     }
 

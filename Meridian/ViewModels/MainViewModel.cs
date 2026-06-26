@@ -101,7 +101,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var notifier = ToastNotificationManager.CreateToastNotifier(ToastSetup.ResolvedAumid);
+            var notifier = ToastSetup.TryCreateNotifier();
+            if (notifier is null) return; // popups muted
             var title = $"Сессия истекла: {account.Email}";
             var body = "Откройте Meridian и войдите в аккаунт заново";
 
@@ -179,6 +180,27 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 case nameof(SettingsStore.ShowOngoingEventOverlay):
                     // Apply() paints or clears the overlay based on the flag.
                     _ongoing.Refresh();
+                    break;
+                case nameof(SettingsStore.SuppressAllPopups):
+                    // On: drain the queue now so future-scheduled toasts don't
+                    // fire from the OS. Off: re-arm the schedule for upcoming
+                    // reminders. Reschedule() handles both — it clears when
+                    // muted (see RescheduleCore) and rebuilds when not.
+                    _reminders.Reschedule();
+                    break;
+                case nameof(SettingsStore.RegisterForNotifications):
+                    // On: (re)write the AUMID/CLSID/shortcut and rebuild the
+                    // toast schedule. Off: tear all of that down and drain the
+                    // queue so nothing the OS holds fires later.
+                    if (AppSettings.RegisterForNotifications)
+                    {
+                        if (!AppPaths.IsIsolated) ToastSetup.EnsureRegistered();
+                        _reminders.Reschedule();
+                    }
+                    else
+                    {
+                        ToastSetup.Unregister();
+                    }
                     break;
             }
         });

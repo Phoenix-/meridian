@@ -77,17 +77,30 @@ public sealed partial class MainWindow : Window
                 TaskbarFlasher.Stop();
         };
 
-        // Diagnostic toast buttons stay hidden unless a marker file exists.
-        // Create `%APPDATA%\Meridian\diag.enabled` (empty file) to reveal
-        // them — useful for validating the toast pipeline on a new machine
-        // without juggling a real calendar event.
-        if (File.Exists(Path.Combine(AppPaths.Root, "diag.enabled")))
-        {
-            BtnTestToast.Visibility = Visibility.Visible;
-            BtnTestScheduled.Visibility = Visibility.Visible;
-        }
+        // Diagnostic toast buttons appear when debug features are on — either
+        // via the in-app setting or the legacy %APPDATA%\Meridian\diag.enabled
+        // marker file (kept as a fallback that works even if settings.json is
+        // unreadable). Re-applied live when the setting toggles.
+        ApplyDebugFeatures();
+        SettingsStore.Changed += OnDebugSettingChanged;
+        Closed += (_, _) => SettingsStore.Changed -= OnDebugSettingChanged;
 
         _ = InitAsync();
+    }
+
+    private void OnDebugSettingChanged(string name)
+    {
+        if (name == nameof(SettingsStore.DebugFeaturesEnabled))
+            DispatcherQueue.TryEnqueue(ApplyDebugFeatures);
+    }
+
+    private void ApplyDebugFeatures()
+    {
+        var on = AppSettings.DebugFeaturesEnabled
+                 || File.Exists(Path.Combine(AppPaths.Root, "diag.enabled"));
+        var vis = on ? Visibility.Visible : Visibility.Collapsed;
+        BtnTestToast.Visibility = vis;
+        BtnTestScheduled.Visibility = vis;
     }
 
     private void OnToastInvoked(string args)
