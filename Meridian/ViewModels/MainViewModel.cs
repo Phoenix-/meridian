@@ -195,12 +195,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
                     if (AppSettings.RegisterForNotifications)
                     {
                         if (!AppPaths.IsIsolated) ToastSetup.EnsureRegistered();
-                        _reminders.Reschedule();
                     }
                     else
                     {
                         ToastSetup.Unregister();
                     }
+                    // Either way, let the scheduler react now rather than on its
+                    // next 5-min tick: on re-register it rebuilds the schedule,
+                    // on de-register it hits the early-out (drains + stops flash).
+                    _reminders.Reschedule();
                     break;
             }
         });

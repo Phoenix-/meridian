@@ -128,12 +128,24 @@ internal sealed class ReminderScheduler
             // MissedWindow.
             var events = _events.SnapshotRange(now - MissedWindow, horizon);
 
-            // Popups muted: don't schedule anything new, and drain whatever we
-            // already queued so the OS won't deliver it from a closed process.
-            // Returning here also skips the missed-summary Show() path below.
-            if (AppSettings.SuppressAllPopups)
+            // Nothing to schedule when popups are muted or we've de-registered
+            // from the notification platform: in the muted case the user wants
+            // silence; in the unregistered case WNP would silently drop every
+            // Show()/AddToSchedule() against our now-unregistered AUMID — and,
+            // worse, the missed-summary path would still call _missed.MarkShown()
+            // for toasts that were never actually delivered, so they'd never
+            // resurface once we re-register. Drain the queue, stop the flash
+            // (it fires the taskbar flash independently of the toast, so a flash
+            // already armed for a future fireAt would otherwise still go off),
+            // and bail before the Show()/AddToSchedule()/MarkShown work below.
+            if (AppSettings.SuppressAllPopups || !AppSettings.RegisterForNotifications)
             {
                 ToastSetup.ClearAllScheduled();
+                if (_flashArmedFor is not null)
+                {
+                    _flashTimer.Stop();
+                    _flashArmedFor = null;
+                }
                 return;
             }
 
