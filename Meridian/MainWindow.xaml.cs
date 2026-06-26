@@ -632,7 +632,7 @@ public sealed partial class MainWindow : Window
 
     private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
-        SettingsWindow.ShowOrActivate();
+        SettingsWindow.ShowOrActivate(this);
     }
 
     private async void OnAddAccountClick(object sender, RoutedEventArgs e)

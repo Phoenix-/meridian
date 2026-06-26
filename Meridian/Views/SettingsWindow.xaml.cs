@@ -65,12 +65,40 @@ public sealed partial class SettingsWindow : Window
         };
     }
 
+    // Centers this window over the owner. Without this the OS drops the window
+    // at some default spot — jarring on a multi-monitor setup where it can land
+    // on a different screen than the one the user is working on. We only do this
+    // at creation time (see ShowOrActivate): once it's open, the user may have
+    // dragged it aside, and re-activating shouldn't yank it back.
+    private void CenterOver(Window owner)
+    {
+        var ownerArea = owner.AppWindow;
+        var size = AppWindow.Size;
+
+        var x = ownerArea.Position.X + (ownerArea.Size.Width - size.Width) / 2;
+        var y = ownerArea.Position.Y + (ownerArea.Size.Height - size.Height) / 2;
+
+        // Clamp to the owner's display work area so the centered window can't
+        // spill off-screen when the main window sits near a monitor edge.
+        var work = DisplayArea.GetFromWindowId(ownerArea.Id, DisplayAreaFallback.Nearest).WorkArea;
+        x = System.Math.Clamp(x, work.X, work.X + work.Width - size.Width);
+        y = System.Math.Clamp(y, work.Y, work.Y + work.Height - size.Height);
+
+        AppWindow.Move(new Windows.Graphics.PointInt32(x, y));
+    }
+
     // Opens the settings window, or brings the existing one to the front.
     // UI-thread only: the single-instance check below isn't synchronized, and
     // every caller (the gear button) is already on the dispatcher.
-    public static void ShowOrActivate()
+    public static void ShowOrActivate(Window owner)
     {
-        _current ??= new SettingsWindow();
+        if (_current is null)
+        {
+            _current = new SettingsWindow();
+            // Center over the owner before the first Activate so it appears in
+            // place — no visible jump from a default spot to its real position.
+            _current.CenterOver(owner);
+        }
         _current.Activate();
     }
 
