@@ -1,3 +1,4 @@
+using Meridian.Auth;
 using Meridian.Models;
 
 namespace Meridian.Services;
@@ -19,6 +20,12 @@ public static class EventActions
     public static Func<CalendarEvent, bool>? CanRespond { get; set; }
 
     public static Func<CalendarEvent, string, Task<bool>>? Respond { get; set; }
+
+    // Resolves the signed-in AccountId that owns an email, or null if none
+    // matches. CalendarEvent stamps only AccountEmail, not the provider, so UI
+    // surfaces that need the full AccountId (e.g. the details flyout gating
+    // Google-only directory lookups) resolve it through here.
+    public static Func<string, AccountId?>? FindAccountByEmail { get; set; }
 
     // Response status values accepted by Google's Events API for an attendee.
     public const string Accepted = "accepted";

@@ -50,6 +50,11 @@ public sealed partial class MainWindow : Window
 
         _accountManager = new AccountManager(providers);
         ViewModel = new MainViewModel(_accountManager, providers, DispatcherQueue);
+
+        // "+ Аккаунт Microsoft" only shows when the provider is configured
+        // (client_secret_microsoft.json present at build time).
+        if (providers.All.Any(p => p.ProviderName == MicrosoftOAuthClient.ProviderName))
+            AddMicrosoftAccountButton.Visibility = Visibility.Visible;
         ViewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ViewModel.IsRefreshing))
@@ -635,12 +640,18 @@ public sealed partial class MainWindow : Window
         SettingsWindow.ShowOrActivate(this);
     }
 
-    private async void OnAddAccountClick(object sender, RoutedEventArgs e)
+    private async void OnAddGoogleAccountClick(object sender, RoutedEventArgs e) =>
+        await AddAccountAsync(GoogleOAuthClient.ProviderName);
+
+    private async void OnAddMicrosoftAccountClick(object sender, RoutedEventArgs e) =>
+        await AddAccountAsync(MicrosoftOAuthClient.ProviderName);
+
+    private async Task AddAccountAsync(string providerName)
     {
         AccountsFlyout.Hide();
         try
         {
-            await _accountManager.AddAccountAsync(GoogleOAuthClient.ProviderName);
+            await _accountManager.AddAccountAsync(providerName);
             ViewModel.InvalidateAndRefresh();
         }
         catch (Exception ex)

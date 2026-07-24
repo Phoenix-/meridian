@@ -101,7 +101,7 @@
                         Visibility="Collapsed"/>
 
             <HyperlinkButton x:Name="OpenInGoogleButton"
-                             Content="Открыть в Google Calendar"
+                             Content="Открыть в веб-календаре"
                              Padding="0,4,0,0"
                              Click="OnOpenInGoogleClick"/>
         </StackPanel>

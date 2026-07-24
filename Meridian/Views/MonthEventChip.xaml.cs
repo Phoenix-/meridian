@@ -63,11 +63,13 @@ public sealed partial class MonthEventChip : UserControl
 
         if (!string.IsNullOrEmpty(ev.HtmlLink))
         {
-            var openItem = new MenuFlyoutItem { Text = "Открыть в Google Calendar" };
+            var openItem = new MenuFlyoutItem { Text = "Открыть в веб-календаре" };
             openItem.Click += async (_, _) =>
             {
                 var url = ev.HtmlLink!;
-                if (!string.IsNullOrEmpty(ev.AccountEmail))
+                // authuser is Google's multi-login account selector; other
+                // providers' web links don't understand it.
+                if (!string.IsNullOrEmpty(ev.AccountEmail) && url.Contains("google.com", StringComparison.Ordinal))
                 {
                     var sep = url.Contains('?') ? '&' : '?';
                     url = $"{url}{sep}authuser={System.Uri.EscapeDataString(ev.AccountEmail)}";

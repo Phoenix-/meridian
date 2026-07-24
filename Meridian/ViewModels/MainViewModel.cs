@@ -74,6 +74,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         // context menu) use to RSVP without a reference to this view model.
         EventActions.CanRespond = _events.CanRespond;
         EventActions.Respond = (ev, status) => _events.SetMyResponseAsync(ev, status);
+        EventActions.FindAccountByEmail = email =>
+        {
+            foreach (var a in accounts.Accounts)
+                if (string.Equals(a.Email, email, StringComparison.OrdinalIgnoreCase))
+                    return a;
+            return null;
+        };
 
         _calendarLists.RefreshAll();
         _ = PollLoopAsync(_pollCts.Token);

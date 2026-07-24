@@ -35,12 +35,21 @@ public partial class App : Application
             ToastSetup.EnsureRegistered();
 
         var providers = new ProviderRegistry();
-        // Under MERIDIAN_DATA_DIR (UI tests) swap Google for an in-process fake:
-        // deterministic data via MERIDIAN_FAKE_FIXTURE, no OAuth, no network.
+        // Under MERIDIAN_DATA_DIR (UI tests) swap real providers for an
+        // in-process fake: deterministic data via MERIDIAN_FAKE_FIXTURE, no
+        // OAuth, no network.
         if (AppPaths.IsIsolated)
+        {
             providers.Register(new FakeCalendarProvider());
+        }
         else
+        {
             providers.Register(new GoogleCalendarProvider());
+            // Microsoft is optional: without client_secret_microsoft.json at
+            // build time there is no client id, and the provider stays off.
+            if (!string.IsNullOrEmpty(MicrosoftSecrets.ClientId))
+                providers.Register(new MicrosoftCalendarProvider());
+        }
 
         MainWindow = new MainWindow(providers);
         MainWindow.Activate();

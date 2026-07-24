@@ -39,10 +39,12 @@
   <!-- SecretsJsonPath can be overridden via -p:SecretsJsonPath=... for CI -->
   <PropertyGroup>
     <SecretsJsonPath Condition="'$(SecretsJsonPath)' == ''">$(MSBuildProjectDirectory)\..\client_secret.json</SecretsJsonPath>
+    <!-- Optional: Microsoft (Entra) public-client id. Absent file => provider disabled. -->
+    <MicrosoftSecretsJsonPath Condition="'$(MicrosoftSecretsJsonPath)' == ''">$(MSBuildProjectDirectory)\..\client_secret_microsoft.json</MicrosoftSecretsJsonPath>
   </PropertyGroup>
   <Target Name="GenerateSecrets" BeforeTargets="CoreCompile">
     <Error Condition="!Exists('$(SecretsJsonPath)')" Text="client_secret.json not found. Set SecretsJsonPath or place file at repo root." />
-    <Exec Command="powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\generate-secrets.ps1&quot; -SecretsJson &quot;$(SecretsJsonPath)&quot; -OutputFile &quot;$(MSBuildProjectDirectory)\Auth\Secrets.g.cs&quot;" />
+    <Exec Command="powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\generate-secrets.ps1&quot; -SecretsJson &quot;$(SecretsJsonPath)&quot; -OutputFile &quot;$(MSBuildProjectDirectory)\Auth\Secrets.g.cs&quot; -MicrosoftJson &quot;$(MicrosoftSecretsJsonPath)&quot;" />
   </Target>
 
   <!-- Workaround for https://github.com/microsoft/WindowsAppSDK/issues/6394 -->

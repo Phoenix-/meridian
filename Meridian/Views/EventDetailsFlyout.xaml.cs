@@ -119,7 +119,9 @@ public sealed partial class EventDetailsFlyout : UserControl
         if (_event?.HtmlLink is not { } link) return;
 
         var url = link;
-        if (!string.IsNullOrEmpty(_event.AccountEmail))
+        // authuser is Google's multi-login account selector; other providers'
+        // web links (outlook.live.com) don't understand it.
+        if (!string.IsNullOrEmpty(_event.AccountEmail) && link.Contains("google.com", StringComparison.Ordinal))
         {
             var sep = link.Contains('?') ? '&' : '?';
             url = $"{link}{sep}authuser={Uri.EscapeDataString(_event.AccountEmail)}";
@@ -560,12 +562,22 @@ public sealed partial class EventDetailsFlyout : UserControl
     // Patches an avatar's tooltip with the directory-resolved display name once
     // it's available, mirroring ResolveDirectoryName for the full rows. Cache
     // hits apply synchronously; misses resolve in the background.
+    // Directory names/photos are a Google Workspace feature. Resolve the
+    // owning account by email and gate on its provider so events from other
+    // providers never reach DirectoryCache (its background resolution talks
+    // to Google APIs and would poison a non-Google account with 401s).
+    private static AccountId? DirectoryAccountFor(string accountEmail)
+    {
+        var account = EventActions.FindAccountByEmail?.Invoke(accountEmail);
+        return account?.Provider == GoogleOAuthClient.ProviderName ? account : null;
+    }
+
     private void ResolveDirectoryTooltip(EventAttendee a, ToolTip tip)
     {
         if (_event?.AccountEmail is not { Length: > 0 } accountEmail) return;
         if (string.IsNullOrWhiteSpace(a.Email)) return;
 
-        var account = new AccountId(GoogleOAuthClient.ProviderName, accountEmail);
+        if (DirectoryAccountFor(accountEmail) is not { } account) return;
 
         if (DirectoryCache.TryGet(account, a.Email, out var cached))
         {
@@ -721,7 +733,7 @@ public sealed partial class EventDetailsFlyout : UserControl
         if (_event?.AccountEmail is not { Length: > 0 } accountEmail) return;
         if (string.IsNullOrWhiteSpace(a.Email)) return;
 
-        var account = new AccountId(GoogleOAuthClient.ProviderName, accountEmail);
+        if (DirectoryAccountFor(accountEmail) is not { } account) return;
 
         // Instant path: a fresh positive cache entry.
         if (DirectoryCache.TryGet(account, a.Email, out var cached))
@@ -809,7 +821,7 @@ public sealed partial class EventDetailsFlyout : UserControl
         if (_event?.AccountEmail is not { Length: > 0 } accountEmail) return;
         if (string.IsNullOrWhiteSpace(a.Email)) return;
 
-        var account = new AccountId(GoogleOAuthClient.ProviderName, accountEmail);
+        if (DirectoryAccountFor(accountEmail) is not { } account) return;
 
         // Fully-warm path: name+URL already resolved and the bitmap already
         // decoded — paint synchronously during build, no flicker, no Task.

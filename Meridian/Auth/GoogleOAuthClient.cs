@@ -1,8 +1,5 @@
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json.Serialization;
 
 namespace Meridian.Auth;
@@ -12,6 +9,7 @@ internal class TokenResponse
     [JsonPropertyName("access_token")]  public string? AccessToken  { get; set; }
     [JsonPropertyName("refresh_token")] public string? RefreshToken { get; set; }
     [JsonPropertyName("expires_in")]    public int     ExpiresIn    { get; set; }
+    [JsonPropertyName("id_token")]      public string? IdToken      { get; set; }
 }
 
 internal class UserinfoResponse
@@ -20,8 +18,17 @@ internal class UserinfoResponse
     [JsonPropertyName("sub")]   public string? Sub   { get; set; }
 }
 
+// Claims read from an id_token payload (Microsoft flow resolves the account
+// email from these instead of a userinfo round-trip).
+internal class IdTokenClaims
+{
+    [JsonPropertyName("email")]              public string? Email             { get; set; }
+    [JsonPropertyName("preferred_username")] public string? PreferredUsername { get; set; }
+}
+
 [JsonSerializable(typeof(TokenResponse))]
 [JsonSerializable(typeof(UserinfoResponse))]
+[JsonSerializable(typeof(IdTokenClaims))]
 internal partial class OAuthJsonContext : JsonSerializerContext { }
 
 public static class GoogleOAuthClient
@@ -58,20 +65,20 @@ public static class GoogleOAuthClient
     // user doesn't have to spot their own email in the picker.
     public static async Task<AccountId> AuthorizeAsync(string? loginHint = null, CancellationToken ct = default)
     {
-        var verifier    = GenerateCodeVerifier();
-        var challenge   = GenerateCodeChallenge(verifier);
+        var verifier    = OAuthLoopback.GenerateCodeVerifier();
+        var challenge   = OAuthLoopback.GenerateCodeChallenge(verifier);
 
         using var listener = new HttpListener();
-        var port        = FindFreePort();
+        var port        = OAuthLoopback.FindFreePort();
         var redirectUri = $"http://127.0.0.1:{port}/";
         listener.Prefixes.Add(redirectUri);
         listener.Start();
 
-        var state   = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
+        var state   = OAuthLoopback.GenerateState();
         var authUrl = BuildAuthUrl(challenge, state, redirectUri, loginHint);
-        Process.Start(new ProcessStartInfo(authUrl) { UseShellExecute = true });
+        OAuthLoopback.OpenBrowser(authUrl);
 
-        var code  = await WaitForCodeAsync(listener, state, ct);
+        var code  = await OAuthLoopback.WaitForCodeAsync(listener, state, ct);
         var token = await ExchangeCodeAsync(code, verifier, redirectUri, ct);
         var email = await ResolveEmailAsync(token.AccessToken, ct);
 
@@ -174,28 +181,6 @@ public static class GoogleOAuthClient
         };
     }
 
-    private static async Task<string> WaitForCodeAsync(HttpListener listener, string expectedState, CancellationToken ct)
-    {
-        while (true)
-        {
-            var ctx   = await listener.GetContextAsync().WaitAsync(ct);
-            var query = ctx.Request.QueryString;
-
-            var html = "<html><body><script>window.close();</script><p>Авторизация завершена, можно закрыть вкладку.</p></body></html>"u8.ToArray();
-            ctx.Response.ContentType     = "text/html; charset=utf-8";
-            ctx.Response.ContentLength64 = html.Length;
-            await ctx.Response.OutputStream.WriteAsync(html, ct);
-            ctx.Response.Close();
-
-            if (query["error"] is { } err)
-                throw new InvalidOperationException($"OAuth error: {err}");
-
-            if (query["state"] != expectedState) continue;
-
-            return query["code"] ?? throw new InvalidOperationException("OAuth response missing code");
-        }
-    }
-
     private static string BuildAuthUrl(string challenge, string state, string redirectUri, string? loginHint)
     {
         var scope = Uri.EscapeDataString(string.Join(" ", Scopes));
@@ -219,23 +204,5 @@ public static class GoogleOAuthClient
             url += $"&login_hint={Uri.EscapeDataString(loginHint)}";
 
         return url;
-    }
-
-    private static string GenerateCodeVerifier() =>
-        Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
-
-    private static string GenerateCodeChallenge(string verifier) =>
-        Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
-
-    private static string Base64UrlEncode(byte[] bytes) =>
-        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private static int FindFreePort()
-    {
-        var l = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        var port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
     }
 }
