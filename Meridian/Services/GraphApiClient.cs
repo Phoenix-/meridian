@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Meridian.Auth;
 using Meridian.Models;
 
@@ -21,6 +22,7 @@ internal class GraphEventDto
     [JsonPropertyName("id")]              public string? Id { get; set; }
     [JsonPropertyName("subject")]         public string? Subject { get; set; }
     [JsonPropertyName("bodyPreview")]     public string? BodyPreview { get; set; }
+    [JsonPropertyName("body")]            public GraphItemBody? Body { get; set; }
     [JsonPropertyName("type")]            public string? Type { get; set; }
     [JsonPropertyName("isAllDay")]        public bool? IsAllDay { get; set; }
     [JsonPropertyName("isCancelled")]     public bool? IsCancelled { get; set; }
@@ -121,13 +123,15 @@ internal class GraphTodoTaskDto
     [JsonPropertyName("id")]          public string? Id { get; set; }
     [JsonPropertyName("title")]       public string? Title { get; set; }
     [JsonPropertyName("status")]      public string? Status { get; set; }
-    [JsonPropertyName("body")]        public GraphTaskBody? Body { get; set; }
+    [JsonPropertyName("body")]        public GraphItemBody? Body { get; set; }
     [JsonPropertyName("dueDateTime")] public GraphDateTimeTz? DueDateTime { get; set; }
 }
 
-internal class GraphTaskBody
+// Shared by events and To Do tasks: {contentType: "html"|"text", content}.
+internal class GraphItemBody
 {
-    [JsonPropertyName("content")] public string? Content { get; set; }
+    [JsonPropertyName("contentType")] public string? ContentType { get; set; }
+    [JsonPropertyName("content")]     public string? Content { get; set; }
 }
 
 internal class GraphRsvpBody
@@ -149,7 +153,7 @@ internal partial class GraphApiJsonContext : JsonSerializerContext { }
 // CalendarInfo / TaskItem shapes. The sync token is Graph's @odata.deltaLink —
 // an opaque URL bound to the (calendar, window) it was issued for, so it slots
 // into the string-token contract unchanged.
-public sealed class GraphApiClient(AccountId id)
+public sealed partial class GraphApiClient(AccountId id)
 {
     private const string GraphBase = "https://graph.microsoft.com/v1.0";
 
@@ -326,7 +330,7 @@ public sealed class GraphApiClient(AccountId id)
             {
                 Id          = item.Id,
                 Title       = item.Subject ?? "(без названия)",
-                Description = string.IsNullOrWhiteSpace(item.BodyPreview) ? null : item.BodyPreview,
+                Description = ExtractBodyText(item.Body, item.BodyPreview),
                 Location    = string.IsNullOrWhiteSpace(item.Location?.DisplayName) ? null : item.Location.DisplayName,
                 Start       = start,
                 End         = end,
@@ -353,6 +357,7 @@ public sealed class GraphApiClient(AccountId id)
     {
         o.Subject                    ??= m.Subject;
         o.BodyPreview                ??= m.BodyPreview;
+        o.Body                       ??= m.Body;
         o.Location                   ??= m.Location;
         o.WebLink                    ??= m.WebLink;
         o.IsAllDay                   ??= m.IsAllDay;
@@ -482,6 +487,65 @@ public sealed class GraphApiClient(AccountId id)
 
     private static string? FirstNonEmpty(string? a, string? b) =>
         !string.IsNullOrWhiteSpace(a) ? a : (!string.IsNullOrWhiteSpace(b) ? b : null);
+
+    // Outlook bodies are almost always heavy HTML (styles, Word markup, Teams
+    // boilerplate). Convert to plain text for the model; bodyPreview (~255
+    // chars) stays as the fallback when the body is absent from the payload.
+    // The soft cap guards the cache and tooltips against pathological invites.
+    private const int MaxDescriptionChars = 8192;
+
+    private static string? ExtractBodyText(GraphItemBody? body, string? fallbackPreview)
+    {
+        if (string.IsNullOrWhiteSpace(body?.Content))
+            return string.IsNullOrWhiteSpace(fallbackPreview) ? null : fallbackPreview;
+
+        var text = string.Equals(body.ContentType, "html", StringComparison.OrdinalIgnoreCase)
+            ? HtmlToText(body.Content)
+            : body.Content;
+
+        text = CollapseBlankLines(text).Trim();
+        if (text.Length == 0) return null;
+        return text.Length <= MaxDescriptionChars ? text : text[..MaxDescriptionChars];
+    }
+
+    // Hand-rolled HTML→text. HtmlUtilities.ConvertToText (Windows.Data.Html)
+    // rides the deprecated IE stack and fail-fasts the process (0xc0000409 in
+    // iertutil.dll) when called off the UI thread — see
+    // notes/no-winrt-html-dom-parser.md. Extraction, not rendering: drop
+    // style/script/head with their content, newline on block-level closers,
+    // strip remaining tags, decode entities.
+    private static string HtmlToText(string html)
+    {
+        var s = DropBlocksRegex().Replace(html, "");
+        s = BlockBreaksRegex().Replace(s, "\n");
+        s = AnyTagRegex().Replace(s, "");
+        return System.Net.WebUtility.HtmlDecode(s).Replace('\u00A0', ' ');
+    }
+
+    [GeneratedRegex(@"<(style|script|head)\b.*?</\1\s*>", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex DropBlocksRegex();
+
+    [GeneratedRegex(@"<br\s*/?>|</(p|div|tr|li|h[1-6]|table|ul|ol)\s*>", RegexOptions.IgnoreCase)]
+    private static partial Regex BlockBreaksRegex();
+
+    [GeneratedRegex("<[^>]+>")]
+    private static partial Regex AnyTagRegex();
+
+    // HTML→text conversion leaves a blank line per block element; more than
+    // one in a row is noise.
+    private static string CollapseBlankLines(string s)
+    {
+        var sb = new System.Text.StringBuilder(s.Length);
+        var blank = 0;
+        foreach (var line in s.Replace("\r\n", "\n").Split('\n'))
+        {
+            var t = line.TrimEnd();
+            if (t.Length == 0) { if (++blank > 1) continue; }
+            else blank = 0;
+            sb.Append(t).Append('\n');
+        }
+        return sb.ToString();
+    }
 
     // Graph statuses → the Google-shaped strings the rest of the app speaks
     // (EventActions / RSVP chips compare against these).

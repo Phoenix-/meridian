@@ -23,9 +23,20 @@ are auto-linked. AOT-safe, zero dependencies.
 
 - [Meridian/Views/EventDetailsFlyout.xaml.cs](../Meridian/Views/EventDetailsFlyout.xaml.cs) → `BuildDescription` / `EmitText` / `StyleRun`
 
+## Update 2026-07-25: ConvertToText is a landmine too
+
+`HtmlUtilities.ConvertToText()` rides the deprecated IE stack: calling it from
+a background (sync) thread on Win11 fail-fasted the whole process —
+`0xc0000409` inside **iertutil.dll**, no catchable CLR exception (seen live
+converting Outlook event bodies in `GraphApiClient`). Do not use it at all.
+Plain-text extraction is now hand-rolled as well:
+
+- [Meridian/Services/GraphApiClient.cs](../Meridian/Services/GraphApiClient.cs) → `HtmlToText`
+  (drop `style/script/head` with content, newline on block closers, strip
+  remaining tags, `WebUtility.HtmlDecode`).
+
 ## Rule of thumb
 
-Need to turn HTML into formatted XAML text? Don't go looking for a WinRT DOM
-parser — there isn't one. Either tokenize the known tag subset by hand, or (if
-the markup is genuinely arbitrary and complex) reconsider whether plain text
-via `HtmlUtilities.ConvertToText` is good enough.
+Need anything HTML-related? `Windows.Data.Html` has nothing for you: no DOM
+parser exists, and `ConvertToText` can fail-fast the process off the UI
+thread. Tokenize / strip the markup by hand.
